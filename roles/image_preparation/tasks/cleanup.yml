@@ -1,0 +1,50 @@
+---
+- name: Clean package cache
+  ansible.builtin.apt:
+    autoclean: true
+    autoremove: true
+  become: true
+
+- name: Remove temporary files
+  ansible.builtin.shell: |
+    rm -rf /tmp/*
+    rm -rf /var/tmp/*
+    rm -f /var/cache/apt/archives/*.deb
+  ignore_errors: true
+  become: true
+
+- name: Clear bash history
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.bash_history"
+    state: absent
+  ignore_errors: true
+
+- name: Clear root bash history
+  ansible.builtin.file:
+    path: /root/.bash_history
+    state: absent
+  ignore_errors: true
+  become: true
+
+- name: Clear log files
+  ansible.builtin.shell: |
+    find /var/log -type f -name "*.log" -exec truncate -s 0 {} \;
+    find /var/log -type f -name "*.log.*" -delete
+  become: true
+  changed_when: false
+
+- name: Clear machine-id to ensure unique instances
+  ansible.builtin.copy:
+    content: ""
+    dest: /etc/machine-id
+    mode: "0644"
+  become: true
+
+- name: Remove SSH host keys (will be regenerated on first boot)
+  ansible.builtin.shell: rm -f /etc/ssh/ssh_host_*
+  become: true
+
+- name: Clear cloud-init cache
+  ansible.builtin.shell: rm -rf /var/lib/cloud
+  become: true
+  ignore_errors: true

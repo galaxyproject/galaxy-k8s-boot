@@ -1,0 +1,22 @@
+---
+- name: Include base packages installation
+  include_tasks: base_packages.yml
+  when: install_base_packages | default(true)
+
+- name: Include system configuration
+  include_tasks: system_config.yml
+
+- name: Include CVMFS installation and configuration
+  include_tasks: cvmfs.yml
+  when: install_cvmfs | default(true)
+
+- name: Include K3s binary installation
+  include_tasks: k3s_binary.yml
+  when: install_k3s_binary | default(true)
+
+- name: Include Helm installation
+  include_tasks: helm.yml
+  when: install_helm | default(true)
+
+- name: Include cleanup tasks
+  include_tasks: cleanup.yml

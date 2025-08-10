@@ -1,0 +1,23 @@
+---
+- name: Update package cache (Ubuntu)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Install base system packages (Ubuntu)
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+    install_recommends: false
+  become: true
+
+- name: Install Python packages via apt (Ubuntu 24.04+ compatible)
+  ansible.builtin.apt:
+    name:
+      - python3-kubernetes
+      - python3-openshift
+      - python3-yaml
+      - python3-jsonpatch
+    state: present
+  become: true

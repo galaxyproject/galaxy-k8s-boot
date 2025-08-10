@@ -1,0 +1,24 @@
+# Example inventory for image preparation (GCP focused)
+# Copy this file and customize for your GCP environment
+
+[image_targets]
+# GCP Instance Example (replace with your actual instance):
+# 34.123.456.789
+
+[image_targets:vars]
+ansible_user='ubuntu'
+ansible_ssh_private_key_file=~/.ssh/gcp-key
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+ansible_python_interpreter=/usr/bin/python3
+
+# Package versions (defaults from role, override if needed)
+# https://github.com/k3s-io/k3s/tags
+# k3s_version=v1.32.7+k3s1
+# https://github.com/helm/helm/tags
+# helm_version=v3.17.4
+
+# Component installation control (all enabled by default)
+# install_base_packages=true
+# install_cvmfs=true
+# install_k3s_binary=true
+# install_helm=true

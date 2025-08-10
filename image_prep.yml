@@ -1,0 +1,108 @@
+---
+- name: Prepare machine image with pre-installed components
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    # Override these variables as needed
+    k3s_version: v1.32.7+k3s1  # https://github.com/k3s-io/k3s/tags
+    helm_version: v3.17.4  # https://github.com/helm/helm/tags
+
+    # Package installation flags
+    install_base_packages: true
+    install_cvmfs: true
+    install_k3s_binary: true
+    install_helm: true
+
+    # CVMFS configuration
+    cvmfs_repositories:
+      - data.galaxyproject.org
+      - main.galaxyproject.org
+      - singularity.galaxyproject.org
+      - test.galaxyproject.org
+
+  pre_tasks:
+    - name: Display target host information
+      debug:
+        msg: |
+          Preparing image for host: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Architecture: {{ ansible_architecture }}
+
+    - name: Update system packages
+      apt:
+        update_cache: true
+        upgrade: dist
+        autoremove: true
+        autoclean: true
+
+  roles:
+    - role: image_preparation
+
+  post_tasks:
+    - name: Display installed components summary
+      debug:
+        msg: |
+          === Image Preparation Complete ===
+          Base packages: {{ 'Installed' if install_base_packages else 'Skipped' }}
+          CVMFS client: {{ 'Installed' if install_cvmfs else 'Skipped' }}
+          K3s binary: {{ 'Installed' if install_k3s_binary else 'Skipped' }}
+          Helm: {{ 'Installed' if install_helm else 'Skipped' }}
+
+    - name: Verify key components are accessible
+      command: "{{ item }}"
+      register: version_checks
+      loop:
+        - "k3s --version"
+        - "helm version --short"
+        - "cvmfs_config probe"
+      failed_when: false
+      changed_when: false
+
+    - name: Display component versions
+      debug:
+        msg: "{{ item.cmd }} -> {{ item.stdout | default(item.stderr) }}"
+      loop: "{{ version_checks.results }}"
+
+    - name: Create image preparation completion marker
+      copy:
+        content: |
+          Image prepared on: {{ ansible_date_time.iso8601 }}
+          Prepared by: {{ ansible_user_id }}@{{ ansible_hostname }}
+          Galaxy K8s Boot Image Preparation v1.0
+
+          Installed components:
+          - K3s: {{ k3s_version }}
+          - Helm: {{ helm_version }}
+          - CVMFS client with Galaxy repositories
+
+          Next steps:
+          1. Create image snapshot from this instance
+          2. Use prepared image for faster K8s cluster deployment
+        dest: /etc/galaxy-k8s-boot-image-info
+        mode: "0644"
+
+    - name: Final cleanup and preparation for imaging
+      block:
+        - name: Stop services that shouldn't run in image
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+            enabled: false
+          loop:
+            - containerd
+            - autofs
+          ignore_errors: true
+
+        - name: Clear systemd journal
+          command: journalctl --vacuum-time=1s
+          ignore_errors: true
+
+        - name: Clear network configuration that might be host-specific
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/netplan/50-cloud-init.yaml
+            - /etc/network/interfaces.d/50-cloud-init.cfg
+          ignore_errors: true

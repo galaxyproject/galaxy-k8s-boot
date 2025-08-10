@@ -1,0 +1,25 @@
+---
+# Default variables for image preparation role
+k3s_version: v1.32.7+k3s1  # https://github.com/k3s-io/k3s/tags
+helm_version: v3.17.4  # https://github.com/helm/helm/tags
+
+# System packages to install (Ubuntu focused)
+base_packages:
+  - python3
+  - python3-pip
+  - python3-openshift
+  - nfs-common
+  - curl
+  - wget
+  - unzip
+  - tar
+  - git
+  - jq
+  - vim
+  - gpg
+
+# Enable/disable components
+install_base_packages: true
+install_cvmfs: true
+install_k3s_binary: true
+install_helm: true

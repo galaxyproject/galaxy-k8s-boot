@@ -4,3 +4,6 @@
 .prettierignore
 k3s/outputs/
 ansible.cfg
+sa-key.json
+kubeconfig.yaml
+image_prep.ini

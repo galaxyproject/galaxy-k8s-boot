@@ -1,0 +1,83 @@
+---
+# Configure essential kernel parameters and system settings required for Kubernetes/K3s to function properly.
+# These settings enable container networking, disable swap, and configure bridge netfilter for pod communication.
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+  become: true
+
+- name: Add kernel modules to load at boot
+  ansible.builtin.copy:
+    content: |
+      br_netfilter
+      overlay
+    dest: /etc/modules-load.d/k8s.conf
+    mode: "0644"
+  become: true
+
+- name: Load kernel modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - br_netfilter
+    - overlay
+  become: true
+
+- name: Set bridge-nf-call-iptables
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.bridge.bridge-nf-call-ip6tables
+  become: true
+
+- name: Disable swap permanently in /etc/fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(.+?\sswap\s+.*)$'
+    replace: '# \1'
+  become: true
+
+- name: Disable swap immediately
+  ansible.builtin.command: swapoff -a
+  become: true
+  changed_when: false
+
+- name: Create .kube directory for ubuntu user
+  ansible.builtin.file:
+    path: /home/ubuntu/.kube
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+  become: true
+
+- name: Add KUBECONFIG to ubuntu user's .bashrc
+  ansible.builtin.lineinfile:
+    path: /home/ubuntu/.bashrc
+    line: 'export KUBECONFIG=~/.kube/config'
+    create: true
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+  become: true
+
+- name: Add KUBECONFIG to ubuntu user's .profile
+  ansible.builtin.lineinfile:
+    path: /home/ubuntu/.profile
+    line: 'export KUBECONFIG=~/.kube/config'
+    create: true
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+  become: true
