@@ -1,8 +1,7 @@
-# Example inventory for image preparation (GCP focused)
-# Copy this file and customize for your GCP environment
+# Example inventory for image preparation
 
 [image_targets]
-# GCP Instance Example (replace with your actual instance):
+# Instance IP Example (replace with your actual instance):
 # 34.123.456.789
 
 [image_targets:vars]

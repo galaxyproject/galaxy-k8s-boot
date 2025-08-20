@@ -14,34 +14,126 @@
     install_k3s_binary: true
     install_helm: true
 
-    # CVMFS configuration
-    cvmfs_repositories:
+    # CVMFS configuration (galaxyproject.cvmfs role)
+    cvmfs_role: client
+    galaxy_cvmfs_repos_enabled: config-repo
+    cvmfs_quota_limit: 4000
+    cvmfs_http_proxies: ["DIRECT"]
+    # Repos to test explicitly
+    cvmfs_verify_repos:
       - data.galaxyproject.org
-      - main.galaxyproject.org
-      - singularity.galaxyproject.org
-      - test.galaxyproject.org
 
   pre_tasks:
     - name: Display target host information
-      debug:
+      ansible.builtin.debug:
         msg: |
           Preparing image for host: {{ inventory_hostname }}
           OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
           Architecture: {{ ansible_architecture }}
 
     - name: Update system packages
-      apt:
+      ansible.builtin.apt:
         update_cache: true
         upgrade: dist
         autoremove: true
         autoclean: true
 
+    - name: Install base packages early (needed for CVMFS role keys)
+      ansible.builtin.import_tasks: roles/image_preparation/tasks/base_packages.yml
+      when: install_base_packages | bool
+
   roles:
+    - role: galaxyproject.cvmfs
+      when: install_cvmfs | bool
     - role: image_preparation
 
   post_tasks:
+    - name: Verify CVMFS client installed
+      ansible.builtin.command: which cvmfs_config
+      register: cvmfs_config_check
+      changed_when: false
+      failed_when: install_cvmfs and cvmfs_config_check.rc != 0
+
+    - name: Probe CVMFS configuration
+      ansible.builtin.command: cvmfs_config probe
+      register: cvmfs_probe
+      changed_when: false
+      failed_when: false
+      when: install_cvmfs | bool
+
+    - name: Show CVMFS probe output
+      ansible.builtin.debug:
+        var: cvmfs_probe.stdout
+      when: install_cvmfs | bool
+
+    - name: Ensure autofs service running for CVMFS
+      ansible.builtin.service:
+        name: autofs
+        state: started
+        enabled: true
+      when: install_cvmfs | bool
+      failed_when: false
+
+    - name: Wait for CVMFS base directory
+      ansible.builtin.stat:
+        path: /cvmfs
+      register: cvmfs_basedir
+      retries: 5
+      delay: 2
+      until: not install_cvmfs or cvmfs_basedir.stat.exists
+
+    - name: Attempt mount of CVMFS repositories
+      when: install_cvmfs | bool
+      block:
+        - name: Trigger on-demand mount by listing repo root
+          ansible.builtin.command: ls -1 /cvmfs/{{ item }}/
+          register: cvmfs_repo_list
+          changed_when: false
+          failed_when: false
+          loop: "{{ cvmfs_verify_repos }}"
+          loop_control:
+            label: "{{ item }}"
+
+        - name: Summarize CVMFS repo mount results
+          ansible.builtin.debug:
+            msg: |
+              CVMFS mount results:
+              {% for r in cvmfs_repo_list.results %}
+              - {{ r.item }}: {{ 'OK' if r.rc == 0 else 'FAILED rc=' + (r.rc|string) }}
+              {% endfor %}
+
+    - name: Fail if any required CVMFS repo failed to mount
+      when: install_cvmfs and (cvmfs_repo_list is defined) and (cvmfs_repo_list.results | selectattr('rc','ne',0) | list | length > 0)
+      ansible.builtin.fail:
+        msg: "CVMFS repository mount failures detected. See previous task output."
+
+    - name: Final CVMFS repository validation (pre-cleanup)
+      when: install_cvmfs | bool
+      block:
+        - name: Verify CVMFS repositories accessible
+          ansible.builtin.command: ls -1 /cvmfs/{{ item }}/
+          register: cvmfs_final_repo_checks
+          changed_when: false
+          failed_when: false
+          loop: "{{ cvmfs_verify_repos }}"
+          loop_control:
+            label: "{{ item }}"
+
+        - name: Summarize final CVMFS repository status
+          ansible.builtin.debug:
+            msg: |
+              Final CVMFS repo checks:
+              {% for r in cvmfs_final_repo_checks.results %}
+              - {{ r.item }}: {{ 'OK' if r.rc == 0 else 'FAILED rc=' + (r.rc | string) }}
+              {% endfor %}
+
+        - name: Fail if any final CVMFS repo check failed
+          ansible.builtin.fail:
+            msg: "Final CVMFS verification failed; repository not accessible."
+          when: cvmfs_final_repo_checks.results | selectattr('rc', 'ne', 0) | list | length > 0
+
     - name: Display installed components summary
-      debug:
+      ansible.builtin.debug:
         msg: |
           === Image Preparation Complete ===
           Base packages: {{ 'Installed' if install_base_packages else 'Skipped' }}
@@ -50,7 +142,7 @@
           Helm: {{ 'Installed' if install_helm else 'Skipped' }}
 
     - name: Verify key components are accessible
-      command: "{{ item }}"
+      ansible.builtin.command: "{{ item }}"
       register: version_checks
       loop:
         - "k3s --version"
@@ -60,12 +152,12 @@
       changed_when: false
 
     - name: Display component versions
-      debug:
+      ansible.builtin.debug:
         msg: "{{ item.cmd }} -> {{ item.stdout | default(item.stderr) }}"
       loop: "{{ version_checks.results }}"
 
     - name: Create image preparation completion marker
-      copy:
+      ansible.builtin.copy:
         content: |
           Image prepared on: {{ ansible_date_time.iso8601 }}
           Prepared by: {{ ansible_user_id }}@{{ ansible_hostname }}
@@ -74,7 +166,7 @@
           Installed components:
           - K3s: {{ k3s_version }}
           - Helm: {{ helm_version }}
-          - CVMFS client with Galaxy repositories
+          - CVMFS client with repositories: {{ cvmfs_verify_repos | join(', ') if install_cvmfs else 'NONE' }}
 
           Next steps:
           1. Create image snapshot from this instance
@@ -84,25 +176,15 @@
 
     - name: Final cleanup and preparation for imaging
       block:
-        - name: Stop services that shouldn't run in image
-          systemd:
-            name: "{{ item }}"
-            state: stopped
-            enabled: false
-          loop:
-            - containerd
-            - autofs
-          ignore_errors: true
-
         - name: Clear systemd journal
-          command: journalctl --vacuum-time=1s
-          ignore_errors: true
+          ansible.builtin.command: journalctl --vacuum-time=1s
+          failed_when: false
 
         - name: Clear network configuration that might be host-specific
-          file:
+          ansible.builtin.file:
             path: "{{ item }}"
             state: absent
           loop:
             - /etc/netplan/50-cloud-init.yaml
             - /etc/network/interfaces.d/50-cloud-init.cfg
-          ignore_errors: true
+          failed_when: false

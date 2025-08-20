@@ -1,7 +1,7 @@
 ---
 # Default variables for image preparation role
-k3s_version: v1.32.7+k3s1  # https://github.com/k3s-io/k3s/tags
-helm_version: v3.17.4  # https://github.com/helm/helm/tags
+k3s_version: v1.33.3+k3s1  # https://github.com/k3s-io/k3s/tags
+helm_version: v3.18.6  # https://github.com/helm/helm/tags
 
 # System packages to install (Ubuntu focused)
 base_packages:
@@ -16,10 +16,12 @@ base_packages:
   - git
   - jq
   - vim
-  - gpg
+  - gnupg
+  - ca-certificates
 
 # Enable/disable components
 install_base_packages: true
 install_cvmfs: true
 install_k3s_binary: true
 install_helm: true
+install_docker: true

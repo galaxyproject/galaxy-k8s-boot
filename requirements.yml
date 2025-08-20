@@ -1,0 +1,12 @@
+---
+# Ansible Galaxy requirements
+
+collections:
+  - name: community.general
+    version: ">=3.0.0"
+  - name: ansible.posix
+    version: ">=1.0.0"
+
+roles:
+  - name: galaxyproject.cvmfs
+    version: "0.3.2"

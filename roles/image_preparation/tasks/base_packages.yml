@@ -21,3 +21,57 @@
       - python3-jsonpatch
     state: present
   become: true
+
+- name: Install Docker prerequisites
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+  when: install_docker | default(false) | bool
+  become: true
+
+- name: Add Docker GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/trusted.gpg.d/docker.asc
+    mode: '0644'
+  when: install_docker | default(false) | bool
+  become: true
+
+- name: Add Docker repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+    filename: docker
+  when: install_docker | default(false) | bool
+  become: true
+
+- name: Update apt cache after adding Docker repo
+  ansible.builtin.apt:
+    update_cache: true
+  when: install_docker | default(false) | bool
+  become: true
+
+- name: Install Docker Engine
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  when: install_docker | default(false) | bool
+  become: true
+
+- name: Enable Docker service for future boots (stopped for image capture)
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: stopped
+  when: install_docker | default(false) | bool
+  become: true

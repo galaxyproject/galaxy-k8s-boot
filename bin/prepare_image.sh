@@ -134,6 +134,17 @@ echo
 # Change to project root directory and run
 cd "$PROJECT_ROOT"
 
+# Install role dependencies first
+echo "=== Installing Ansible role dependencies ==="
+if [[ -f "requirements.yml" ]]; then
+    ansible-galaxy install -r requirements.yml
+    if [[ $? -ne 0 ]]; then
+        echo "Failed to install role dependencies"
+        exit 1
+    fi
+    echo
+fi
+
 echo "=== Starting image preparation ==="
 eval $CMD
 
@@ -143,12 +154,10 @@ if [[ $? -eq 0 ]]; then
     if [[ "$DRY_RUN" != "true" ]]; then
         echo
         echo "Next steps:"
-        echo "1. Create an image/snapshot from the prepared instance"
+        echo "1. Create an image from the prepared instance"
         echo "2. Use the prepared image for faster K8s deployments with:"
-        echo "   ansible-playbook -i your_cluster_inventory runtime_playbook.yml"
+        echo "   ansible-playbook -i your_cluster_inventory deploy.yml"
         echo
-        echo "Verify preparation with:"
-        echo "   ansible -i $INVENTORY_FILE all -m shell -a 'cat /etc/galaxy-k8s-boot-image-info'"
     fi
 else
     echo

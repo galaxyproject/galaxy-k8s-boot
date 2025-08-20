@@ -1,12 +1,27 @@
 # Galaxy Kubernetes Boot
 
-This project is a collection of [Ansible Playbooks](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html) and configurations to deploy a Kubernetes cluster (K3S or RKE2) and a Galaxy instance. The playbooks work on GCP, AWS, and OpenStack VM instances.
+Use this repo to deploy Galaxy. The repo contains Ansible playbooks to prepare a
+cloud image and deploy a Galaxy instance. Galaxy is deployed on a Kubernetes
+cluster using K3s. The playbooks work on GCP, AWS, and OpenStack (e.g.,
+Jetstream2).
 
-Currently, only the K3S cluster has been tested. The RKE2 cluster is a work in progress.
+## Overview
 
-The playbook can be run either against a remote host or the host itself (localhost).
+This repo is divided into two main parts:
 
-## Environment setup
+1. **Image Preparation**: This part contains playbooks and scripts to prepare a
+   cloud image with all necessary components pre-installed. See [Image
+   Preparation](docs/ImagePreparation.md) for details.
+2. **Deployment**: This part contains playbooks to deploy the prepared image
+   onto a Kubernetes cluster. The deployment playbook can also be used without a
+   prepared image, but using a prepared image speeds up the deployment process.
+   Documentation for the deployment process can be found below (Note: this part
+   of the documentation is currently out of date so will require some
+   interpretation and adjustment).
+
+## Deployment
+
+### Prerequisites
 
 To run the playbook we need to install Ansible and some other optional requirements that are only needed to generate the inventory file with the `bin/inventory.sh` script. The easiest way to install the requirements is to use `pip`.
 
@@ -24,7 +39,7 @@ sudo add-apt-repository --yes --update ppa:ansible/ansible
 sudo apt install ansible
 ```
 
-## Launching the VM
+### Launching the VM
 
 When launching a VM, use Ubuntu 24.04 image, root file system should be at least
 30GB, attach a security group with ports 22 and 80 open, and on AWS enable V1
@@ -33,6 +48,25 @@ should be 100GB), create a file system on the disk, and mount it (see commands
 below). By default, the playbook expects the disk to be mounted at
 `/mnt/block_storage` but this is configurable via `block_storage_disk_path`
 variable in the inventory file.
+
+You can use the following command to launch a VM:
+
+```bash
+gcloud compute instances create ea-k3s-c1 \
+  --project=anvil-and-terra-development \
+  --zone=us-east4-c \
+  --machine-type=e2-standard-4 \
+  --image=galaxy-k8s-boot-v2025-08-12 \
+  --image-project=anvil-and-terra-development \
+  --boot-disk-size=100GB \
+  --boot-disk-type=pd-balanced \
+  --tags=k8s,http-server,https-server \
+  --scopes=cloud-platform \
+  --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair"
+```
+
+Then, create mount the block storage disk. For dev purposes, you can simply
+create a directory `/mnt/block_storage` and not bother creating a disk.
 
 ```bash
 sudo mkfs -t ext4 /dev/nvme1n1
