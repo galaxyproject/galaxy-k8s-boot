@@ -1,7 +1,7 @@
 ---
 - name: Setup the Galaxy application
   hosts: controllers[0]
-  gather_facts: false  # Use facts from main deploy.yml playbook
+  gather_facts: false
   vars:
     chart: cloudve/galaxy
     version: 6.4.0
@@ -48,7 +48,7 @@
             galaxy.yml:
               galaxy:
                 admin_users: "{{ gxy_admin_users }}"
-                master_api_key: "{{ gxy_api_key }}"
+                master_api_key: "{{ gxy_api_key | default(omit) }}"
           jobs:
             rules:
               tpv_rules_local.yml:
