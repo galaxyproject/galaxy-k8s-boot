@@ -4,7 +4,7 @@
   gather_facts: false  # Use facts from main deploy.yml playbook
   vars:
     chart: cloudve/galaxy
-    version: 6.1.0
+    version: 6.4.0
     job_max_cores: 1
     job_max_mem: 4
   environment:

@@ -103,7 +103,7 @@ Kubernetes cluster and the Galaxy instance. The playbook takes the arguments:
 
 - `chart_values_file`: Optional. Path relative to `values` subfolder containing
   values that will be used to configure the Galaxy Helm chart. The default is
-  `accp.yml`.
+  `values.yml`.
 
 ```bash
 ansible-playbook -i inventories/my-server.ini deploy-galaxy.yml --extra-vars "application=galaxy" --extra-vars "galaxy_api_key=changeme" --extra-vars "galaxy_admin_users=email@address.com"

@@ -41,9 +41,15 @@ rabbitmq:
 configs:
   galaxy.yml:
     galaxy:
-      require_login: true
+      #require_login: true
       show_welcome_with_login: true
-      allow_user_creation: false
+      # allow_user_creation: false
+      enable_quotas: true
+  job_conf.yml:
+    limits:
+      - type: total_walltime
+        window: 1  # number in days
+        value: '00:00:30'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
 
 extraFileMappings:
   /galaxy/server/static/welcome.html:
@@ -61,15 +67,13 @@ extraFileMappings:
                   <div class="container">
                       <div class="row mb-4">
                           <div class="col-md-12">
-                              <h2>Welcome to Galaxy on ACCP</h2>
+                              <h2>Welcome to Galaxy</h2>
                               <p>
                                   Galaxy is an interactive and workflow analysis
                                   platform providing a graphical user interface
                                   for computational tools. This is your own
-                                  Galaxy instance running on the ACCP platform
-                                  that you can customize and use for your own
-                                  research. You can also add others users to
-                                  this Galaxy instance via the ACCP portal.
+                                  Galaxy instance that you can customize and use
+                                  for your own research.
                               </p>
                           </div>
                       </div>

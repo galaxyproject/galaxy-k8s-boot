@@ -1,25 +1,9 @@
-[masters]
+[k8s_cluster]
 127.0.0.1 ansible_connection=local ansible_python_interpreter="/usr/bin/python3"
-
-[workers]
-
-
-[k8s_cluster:children]
-masters
-workers
-
-# Legacy groups for compatibility
-[controllers:children]
-masters
-
-[agents:children]
-workers
-
-[nodes:children]
-masters
-workers
 
 [all:vars]
 ansible_user='ubuntu'
-rke2_version='v1.33.4+rke2r1'
 rke2_token='defaultSecret12345'
+rke2_additional_sans=['__HOST__']
+rke2_disable=['rke2-traefik', 'rke2-ingress-nginx']
+rke2_debug=true
