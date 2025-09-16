@@ -10,7 +10,7 @@
 # - Optimized for Galaxy deployment scenarios
 # - Minimal fact gathering for maximum speed
 
-- name: Fast runtime configuration and RKE2 cluster setup (single play for speed)
+- name: Runtime configuration and RKE2 cluster setup
   hosts: k8s_cluster
   gather_facts: true  # Only gather facts once at the very beginning
   tasks:
@@ -45,7 +45,6 @@
         mode: '0755'
       become: true
 
-    # RKE2 setup tasks (single-node = master and worker)
     - name: Create RKE2 server configuration for single-node cluster
       copy:
         dest: /etc/rancher/rke2/config.yaml
@@ -114,7 +113,6 @@
         replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
       become: true
 
-    # Post-cluster configuration tasks
     - name: Remove master node taint to allow workload scheduling
       shell: |
         /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/control-plane- || true
@@ -170,19 +168,6 @@
       set_fact:
         kubeconfig_path: "{{ ansible_env.HOME }}/.kube/config"
 
-    - name: Debug kubeconfig content
-      shell: |
-        echo "=== Original RKE2 kubeconfig ==="
-        cat /etc/rancher/rke2/rke2.yaml | grep server:
-        echo "=== User kubeconfig ==="
-        cat {{ ansible_env.HOME }}/.kube/config | grep server:
-      register: kubeconfig_debug
-
-    - name: Show kubeconfig debug info
-      debug:
-        var: kubeconfig_debug.stdout_lines
-
-# Import playbooks with fact gathering disabled (use cached facts from above)
 - name: Install NFS
   import_playbook: nfs.yml
 

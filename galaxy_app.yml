@@ -10,6 +10,13 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   tasks:
+    - name: Add CloudVE Helm repository
+      kubernetes.core.helm_repository:
+        name: cloudve
+        repo_url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+
     - name: Create the galaxy-deps namespace
       kubernetes.core.k8s:
         kind: Namespace
