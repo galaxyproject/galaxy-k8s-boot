@@ -56,6 +56,8 @@
           cluster-init: true
           token: "{{ rke2_token }}"
           advertise-address: "{{ ansible_default_ipv4.address }}"
+          kube-apiserver-arg:
+            - "advertise-address={{ ansible_default_ipv4.address }}"
           tls-san:
             - "{{ ansible_default_ipv4.address }}"
             - "{{ ansible_ssh_host | default(ansible_host) }}"
@@ -93,6 +95,25 @@
         delay: 10
         timeout: 300
 
+    - name: Wait for kubeconfig to be generated
+      wait_for:
+        path: /etc/rancher/rke2/rke2.yaml
+        timeout: 60
+
+    - name: Check and fix kubeconfig server address in original file
+      replace:
+        path: /etc/rancher/rke2/rke2.yaml
+        regexp: 'server: https://127\.0\.0\.1:6443'
+        replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
+      become: true
+
+    - name: Also fix any 0.0.0.0 references in original kubeconfig
+      replace:
+        path: /etc/rancher/rke2/rke2.yaml
+        regexp: 'server: https://0\.0\.0\.0:6443'
+        replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
+      become: true
+
     # Post-cluster configuration tasks
     - name: Remove master node taint to allow workload scheduling
       shell: |
@@ -113,8 +134,15 @@
     - name: Update kubeconfig server address for user
       replace:
         path: "{{ ansible_env.HOME }}/.kube/config"
-        regexp: 'https://127\.0\.0\.1:6443'
-        replace: "https://{{ ansible_default_ipv4.address }}:6443"
+        regexp: 'server: https://127\.0\.0\.1:6443'
+        replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
+      become: true
+
+    - name: Also fix any 0.0.0.0 references in kubeconfig
+      replace:
+        path: "{{ ansible_env.HOME }}/.kube/config"
+        regexp: 'server: https://0\.0\.0\.0:6443'
+        replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
       become: true
 
     - name: Add RKE2 bin directory to user's PATH
@@ -141,6 +169,18 @@
     - name: Set kubeconfig path fact
       set_fact:
         kubeconfig_path: "{{ ansible_env.HOME }}/.kube/config"
+
+    - name: Debug kubeconfig content
+      shell: |
+        echo "=== Original RKE2 kubeconfig ==="
+        cat /etc/rancher/rke2/rke2.yaml | grep server:
+        echo "=== User kubeconfig ==="
+        cat {{ ansible_env.HOME }}/.kube/config | grep server:
+      register: kubeconfig_debug
+
+    - name: Show kubeconfig debug info
+      debug:
+        var: kubeconfig_debug.stdout_lines
 
 # Import playbooks with fact gathering disabled (use cached facts from above)
 - name: Install NFS
