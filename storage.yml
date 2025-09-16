@@ -7,16 +7,18 @@
     cinder_csi_version: 2.31.2
     block_storage_disk_path: /mnt/block_storage
   environment:
-    KUBECONFIG: "{{ '/root' if ansible_user == 'root' else '/home/' + ansible_user }}/.kube/config"
+    KUBECONFIG: "{{ kubeconfig_path }}"
   tasks:
     - name: Render the hostpath storage class template
       kubernetes.core.k8s:
         template:
           path: templates/hostpath_storage_class.yaml.j2
         state: present
+        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Render the elastic block storage class
       kubernetes.core.k8s:
         template:
           path: block_storage_storageclass.yml.j2
         state: present
+        kubeconfig: "{{ kubeconfig_path }}"

@@ -36,12 +36,12 @@
       shell: systemd-machine-id-setup
       become: true
 
-    - name: Ensure ubuntu user kubeconfig directory
+    - name: Ensure user kubeconfig directory
       file:
-        path: /home/ubuntu/.kube
+        path: "{{ ansible_env.HOME }}/.kube"
         state: directory
-        owner: ubuntu
-        group: ubuntu
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
         mode: '0755'
       become: true
 
@@ -55,6 +55,7 @@
           # Single-node cluster configuration
           cluster-init: true
           token: "{{ rke2_token }}"
+          advertise-address: "{{ ansible_default_ipv4.address }}"
           tls-san:
             - "{{ ansible_default_ipv4.address }}"
             - "{{ ansible_ssh_host | default(ansible_host) }}"
@@ -99,42 +100,47 @@
         /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/master- || true
       become: true
 
-    - name: Copy kubeconfig to ubuntu user
+    - name: Copy kubeconfig to user
       copy:
         src: /etc/rancher/rke2/rke2.yaml
-        dest: /home/ubuntu/.kube/config
-        owner: ubuntu
-        group: ubuntu
+        dest: "{{ ansible_env.HOME }}/.kube/config"
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
         mode: '0600'
         remote_src: true
       become: true
 
-    - name: Update kubeconfig server address for ubuntu user
+    - name: Update kubeconfig server address for user
       replace:
-        path: /home/ubuntu/.kube/config
+        path: "{{ ansible_env.HOME }}/.kube/config"
         regexp: 'https://127\.0\.0\.1:6443'
         replace: "https://{{ ansible_default_ipv4.address }}:6443"
       become: true
 
-    - name: Add RKE2 bin directory to ubuntu user's PATH
+    - name: Add RKE2 bin directory to user's PATH
       lineinfile:
-        path: /home/ubuntu/.bashrc
+        path: "{{ ansible_env.HOME }}/.bashrc"
         line: 'export PATH=/var/lib/rancher/rke2/bin:$PATH'
         create: true
-        owner: ubuntu
-        group: ubuntu
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
         mode: '0644'
       become: true
 
-    - name: Add KUBECONFIG to ubuntu user's environment
+    - name: Add KUBECONFIG to user's environment
       lineinfile:
-        path: /home/ubuntu/.bashrc
-        line: 'export KUBECONFIG=/home/ubuntu/.kube/config'
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        line: "export KUBECONFIG={{ ansible_env.HOME }}/.kube/config"
         create: true
-        owner: ubuntu
-        group: ubuntu
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
         mode: '0644'
       become: true
+
+    # Ensure kubeconfig is available for ansible kubernetes modules
+    - name: Set kubeconfig path fact
+      set_fact:
+        kubeconfig_path: "{{ ansible_env.HOME }}/.kube/config"
 
 # Import playbooks with fact gathering disabled (use cached facts from above)
 - name: Install NFS

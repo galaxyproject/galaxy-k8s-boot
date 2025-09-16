@@ -10,7 +10,7 @@
     reclaim: Delete
     version: 1.8.0
   environment:
-    KUBECONFIG: "{{ '/root' if ansible_user == 'root' else '/home/' + ansible_user }}/.kube/config"
+    KUBECONFIG: "{{ kubeconfig_path }}"
   tasks:
     - name: Stop conflicting host NFS services
       systemd:
@@ -28,12 +28,14 @@
         kind: Namespace
         name: nfs-provisioner
         state: present
+        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Install the Ganesha NFS Helm repository
       kubernetes.core.helm_repository:
         name: nfs-ganesha
         repo_url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
         state: present
+        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Helm install Ganesha NFS
       kubernetes.core.helm:
@@ -41,6 +43,7 @@
         namespace: nfs-provisioner
         chart_ref: nfs-ganesha/nfs-server-provisioner
         chart_version: "{{ version }}"
+        kubeconfig: "{{ kubeconfig_path }}"
         values:
           service:
             type: LoadBalancer

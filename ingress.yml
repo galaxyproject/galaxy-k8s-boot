@@ -5,19 +5,21 @@
   vars:
     version: 4.2.5
   environment:
-    KUBECONFIG: "{{ '/root' if ansible_user == 'root' else '/home/' + ansible_user }}/.kube/config"
+    KUBECONFIG: "{{ kubeconfig_path }}"
   tasks:
     - name: Create namespace for nginx ingress
       kubernetes.core.k8s:
         kind: Namespace
         name: ingress-nginx
         state: present
+        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Add helm repo for nginx ingress
       kubernetes.core.helm_repository:
         name: ingress-nginx
         state: present
         repo_url: https://kubernetes.github.io/ingress-nginx
+        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Helm install nginx ingress controller
       kubernetes.core.helm:
@@ -25,6 +27,7 @@
         namespace: ingress-nginx
         chart_ref: ingress-nginx/ingress-nginx
         chart_version: "{{ version }}"
+        kubeconfig: "{{ kubeconfig_path }}"
         values:
           controller:
             hostNetwork: true
@@ -43,3 +46,4 @@
         name: ingress-nginx-admission
         kind: ValidatingWebhookConfiguration
         state: absent
+        kubeconfig: "{{ kubeconfig_path }}"

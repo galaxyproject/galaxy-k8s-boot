@@ -8,13 +8,14 @@
     job_max_cores: 1
     job_max_mem: 4
   environment:
-    KUBECONFIG: "{{ '/root' if ansible_user == 'root' else '/home/' + ansible_user }}/.kube/config"
+    KUBECONFIG: "{{ kubeconfig_path }}"
   tasks:
     - name: Create the galaxy-deps namespace
       kubernetes.core.k8s:
         kind: Namespace
         name: galaxy-deps
         state: present
+        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Helm install galaxy-deps
       kubernetes.core.helm:
@@ -22,12 +23,14 @@
         namespace: galaxy-deps
         chart_ref: "cloudve/galaxy-deps"
         chart_version: "1.0.0"
+        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Create the galaxy namespace
       kubernetes.core.k8s:
         kind: Namespace
         name: galaxy
         state: present
+        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Copy the values file to the remote host
       ansible.builtin.copy:
@@ -41,6 +44,7 @@
         namespace: galaxy
         chart_ref: "{{ chart }}"
         chart_version: "{{ version }}"
+        kubeconfig: "{{ kubeconfig_path }}"
         values_files:
           - /tmp/values.yml
         values:
