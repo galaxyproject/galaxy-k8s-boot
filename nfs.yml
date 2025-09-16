@@ -1,6 +1,6 @@
 ---
 - name: Setup NFS Provisioner
-  hosts: controllers[0]
+  hosts: k8s_cluster
   gather_facts: false  # Use facts from main deploy.yml playbook
   vars:
     persistence_storage_class: blockstorage
