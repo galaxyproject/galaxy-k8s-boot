@@ -18,6 +18,7 @@ base_packages:
   - vim
   - gnupg
   - ca-certificates
+  - ansible
 
 # Enable/disable components
 install_base_packages: true

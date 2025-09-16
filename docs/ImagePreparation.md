@@ -47,11 +47,11 @@ roles/image_preparation/
 │   ├── helm.yml             # Helm installation
 │   └── cleanup.yml          # Image cleanup
 
-image_preparation.yml        # Main playbook for builing the image
-runtime_playbook.yml         # Deployment playbook using the prepared image
+image_prep.yml               # Main playbook for builing the image
+deploy-galaxy.yml            # Deployment playbook using the prepared image
 
 inventories/
-└── image_preparation.ini.example  # GCP-focused example
+└── image_prep.ini.example   # GCP-focused example
 
 bin/prepare_image.sh         # Helper script
 ```

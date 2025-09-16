@@ -65,8 +65,8 @@ gcloud compute instances create ea-rke2-c \
   --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair"
 ```
 
-Then, create mount the block storage disk. For dev purposes, you can simply
-create a directory `/mnt/block_storage` and not bother creating a disk.
+Then, create mount the block storage disk. For dev purposes, you can skip this
+step and any data managed by Galaxy will be ephemeral.
 
 ```bash
 sudo mkfs -t ext4 /dev/nvme1n1
@@ -106,7 +106,7 @@ Kubernetes cluster and the Galaxy instance. The playbook takes the arguments:
   `values.yml`.
 
 ```bash
-ansible-playbook -i inventories/my-server.ini deploy-galaxy.yml --extra-vars "application=galaxy" --extra-vars "galaxy_api_key=changeme" --extra-vars "galaxy_admin_users=email@address.com"
+ansible-playbook -i inventories/my-server.ini deploy-galaxy.yml --extra-vars "galaxy_admin_users=email@address.com"
 ```
 
 Once the playbook completes, the Galaxy instance will be available at `http://<server-ip>/` after a few minutes.

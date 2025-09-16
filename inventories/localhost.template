@@ -4,6 +4,7 @@
 [all:vars]
 ansible_user='ubuntu'
 rke2_token='defaultSecret12345'
-rke2_additional_sans=['__HOST__']
+rke2_additional_sans=['0.0.0.0']
+rke2_bind_address='0.0.0.0'
 rke2_disable=['rke2-traefik', 'rke2-ingress-nginx']
 rke2_debug=true
