@@ -35,7 +35,6 @@
         name: nfs-ganesha
         repo_url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
 
     - name: Helm install Ganesha NFS
       kubernetes.core.helm:

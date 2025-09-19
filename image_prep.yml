@@ -8,9 +8,6 @@
     # Cache facts to avoid re-gathering
     ansible_facts_gathering: smart
     ansible_facts_cache: true
-    # Override these variables as needed
-    rke2_version: v1.33.4+rke2r1  # https://github.com/rancher/rke2/tags
-    helm_version: v3.17.4  # https://github.com/helm/helm/tags
 
     # Package installation flags
     install_base_packages: true

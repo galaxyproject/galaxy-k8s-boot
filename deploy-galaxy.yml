@@ -51,21 +51,19 @@
         mode: '0600'
         content: |
           write-kubeconfig-mode: "0644"
-          # Single-node cluster configuration
           cluster-init: true
           token: "{{ rke2_token }}"
           advertise-address: "{{ ansible_default_ipv4.address }}"
-          kube-apiserver-arg:
-            - "advertise-address={{ ansible_default_ipv4.address }}"
           tls-san:
             - "{{ ansible_default_ipv4.address }}"
             - "{{ ansible_ssh_host | default(ansible_host) }}"
             - 127.0.0.1
             - localhost
+            - 0.0.0.0
           {% for san in rke2_additional_sans | default([]) %}
             - "{{ san }}"
           {% endfor %}
-          bind-address: "{{ rke2_bind_address | default('0.0.0.0') }}"
+          bind-address: "0.0.0.0"
           disable:
           {% for component in rke2_disable | default(['rke2-traefik', 'rke2-ingress-nginx']) %}
             - "{{ component }}"
@@ -75,8 +73,6 @@
           {% if rke2_debug | default(false) %}
           debug: true
           {% endif %}
-          # Allow workloads to be scheduled on master node (single-node setup)
-          # No taints applied to allow pods to run on the master
       become: true
 
     - name: Start and enable RKE2 server
@@ -99,19 +95,20 @@
         path: /etc/rancher/rke2/rke2.yaml
         timeout: 60
 
-    - name: Check and fix kubeconfig server address in original file
-      replace:
-        path: /etc/rancher/rke2/rke2.yaml
-        regexp: 'server: https://127\.0\.0\.1:6443'
-        replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
-      become: true
-
-    - name: Also fix any 0.0.0.0 references in original kubeconfig
+    - name: Also fix any 0.0.0.0 references in original kubeconfig (fallback)
       replace:
         path: /etc/rancher/rke2/rke2.yaml
         regexp: 'server: https://0\.0\.0\.0:6443'
         replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
       become: true
+
+    - name: Fix kubeconfig server address for SSH connections
+      replace:
+        path: /etc/rancher/rke2/rke2.yaml
+        regexp: "server: https://{{ ansible_default_ipv4.address }}:6443"
+        replace: "server: https://127.0.0.1:6443"
+      become: true
+      when: ansible_connection != 'local'
 
     - name: Remove master node taint to allow workload scheduling
       shell: |
@@ -129,19 +126,21 @@
         remote_src: true
       become: true
 
-    - name: Update kubeconfig server address for user
+    - name: Fix user kubeconfig for SSH connections
       replace:
         path: "{{ ansible_env.HOME }}/.kube/config"
-        regexp: 'server: https://127\.0\.0\.1:6443'
-        replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
+        regexp: "server: https://{{ ansible_default_ipv4.address }}:6443"
+        replace: "server: https://127.0.0.1:6443"
       become: true
+      when: ansible_connection != 'local'
 
-    - name: Also fix any 0.0.0.0 references in kubeconfig
+    - name: Also fix any 0.0.0.0 references in user kubeconfig (fallback)
       replace:
         path: "{{ ansible_env.HOME }}/.kube/config"
         regexp: 'server: https://0\.0\.0\.0:6443'
         replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
       become: true
+      when: ansible_connection == 'local'
 
     - name: Add RKE2 bin directory to user's PATH
       lineinfile:
