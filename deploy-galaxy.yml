@@ -126,17 +126,6 @@
         remote_src: true
       become: true
 
-    - name: Copy kubeconfig to root (for ansible-pull controller access)
-      copy:
-        src: /etc/rancher/rke2/rke2.yaml
-        dest: /root/.kube/config
-        owner: root
-        group: ubuntu
-        mode: '0640'
-        remote_src: true
-      become: true
-      when: ansible_connection == 'local'
-
     - name: Fix user kubeconfig for SSH connections
       replace:
         path: "{{ ansible_env.HOME }}/.kube/config"
@@ -174,15 +163,9 @@
       become: true
 
     # Ensure kubeconfig is available for ansible kubernetes modules
-    - name: Set kubeconfig path fact for local connections
+    - name: Set kubeconfig path fact
       set_fact:
-        kubeconfig_path: "{{ ansible_env.HOME }}/.kube/config:/root/.kube/config"
-      when: ansible_connection == 'local'
-
-    - name: Set kubeconfig path fact for SSH connections
-      set_fact:
-        kubeconfig_path: "{{ ansible_env.HOME }}/.kube/config"
-      when: ansible_connection != 'local'
+        kubeconfig_path: "/etc/rancher/rke2/rke2.yaml"
 
 - name: Install NFS
   import_playbook: nfs.yml
