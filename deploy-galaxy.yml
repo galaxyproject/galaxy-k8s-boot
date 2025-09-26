@@ -126,11 +126,14 @@
         remote_src: true
       become: true
 
-    - name: Make root kubeconfig readable by ubuntu user for ansible-pull
-      file:
-        path: /root/.kube/config
+    - name: Copy kubeconfig to root (for ansible-pull controller access)
+      copy:
+        src: /etc/rancher/rke2/rke2.yaml
+        dest: /root/.kube/config
+        owner: root
         group: ubuntu
         mode: '0640'
+        remote_src: true
       become: true
       when: ansible_connection == 'local'
 
