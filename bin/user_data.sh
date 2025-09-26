@@ -19,5 +19,5 @@ runcmd:
     rke2_debug=true
     EOF
 
-    ansible-pull -U https://github.com/galaxyproject/galaxy-k8s-boot.git -C master -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key deploy-galaxy.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ansible-pull -U https://github.com/galaxyproject/galaxy-k8s-boot.git -C master -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key deploy-galaxy.yml
     '

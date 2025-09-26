@@ -14,28 +14,6 @@
   hosts: k8s_cluster
   gather_facts: true  # Only gather facts once at the very beginning
   tasks:
-    # Initial system preparation tasks
-    - name: Regenerate SSH host keys
-      shell: |
-        ssh-keygen -A
-        systemctl restart ssh
-      become: true
-
-    - name: Start required services
-      systemd:
-        name: "{{ item }}"
-        state: started
-        enabled: true
-        daemon_reload: true
-      loop:
-        - containerd
-        - autofs
-      become: true
-
-    - name: Initialize machine-id
-      shell: systemd-machine-id-setup
-      become: true
-
     - name: Create RKE2 server configuration for single-node cluster
       copy:
         dest: /etc/rancher/rke2/config.yaml
@@ -81,12 +59,7 @@
         delay: 10
         timeout: 300
 
-    - name: Wait for kubeconfig to be generated
-      wait_for:
-        path: /etc/rancher/rke2/rke2.yaml
-        timeout: 60
-
-    - name: Also fix any 0.0.0.0 references in original kubeconfig (fallback)
+    - name: Fix any 0.0.0.0 references in kubeconfig
       replace:
         path: /etc/rancher/rke2/rke2.yaml
         regexp: 'server: https://0\.0\.0\.0:6443'
@@ -105,26 +78,6 @@
       shell: |
         /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/control-plane- || true
         /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/master- || true
-      become: true
-
-    - name: Add RKE2 bin directory to user's PATH
-      lineinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
-        line: 'export PATH=/var/lib/rancher/rke2/bin:$PATH'
-        create: true
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-        mode: '0644'
-      become: true
-
-    - name: Add KUBECONFIG to user's environment
-      lineinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
-        line: "export KUBECONFIG=/etc/rancher/rke2/rke2.yaml"
-        create: true
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-        mode: '0644'
       become: true
 
     # Ensure kubeconfig is available for ansible kubernetes modules

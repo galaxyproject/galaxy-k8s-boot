@@ -14,6 +14,7 @@
     install_cvmfs: true
     install_rke2_prerequisites: true
     install_helm: true
+    prefetch_container_images: true
 
     # CVMFS configuration (galaxyproject.cvmfs role)
     cvmfs_role: client
@@ -44,14 +45,15 @@
       when: install_base_packages | bool
 
   roles:
-    # Roles will use facts gathered at playbook start (no re-gathering)
     - role: galaxyproject.cvmfs
       when: install_cvmfs | bool
 
     - role: image_preparation
 
+    - role: container_prefetch
+      when: prefetch_container_images | bool
+
   post_tasks:
-    # Fast verification checks (no fact re-gathering needed)
     - name: Verify CVMFS client installed
       ansible.builtin.command: which cvmfs_config
       register: cvmfs_config_check
@@ -120,6 +122,7 @@
           CVMFS client: {{ 'Installed' if install_cvmfs else 'Skipped' }}
           RKE2 prerequisites: {{ 'Installed' if install_rke2_prerequisites else 'Skipped' }}
           Helm: {{ 'Installed with pre-configured repositories' if install_helm else 'Skipped' }}
+          Container images: {{ 'Pre-fetched' if prefetch_container_images else 'Skipped' }}
 
     - name: Verify key components are accessible
       ansible.builtin.command: "{{ item }}"
@@ -127,6 +130,7 @@
       loop:
         - "helm version --short"
         - "cvmfs_config probe"
+        - "crictl version"
       failed_when: false
       changed_when: false
 
@@ -144,6 +148,7 @@
           - RKE2 prerequisites: {{ rke2_version }}
           - Helm: {{ helm_version }} with pre-configured repositories (stable, cloudve)
           - CVMFS client with repositories: {{ cvmfs_verify_repos | join(', ') if install_cvmfs else 'NONE' }}
+          - Container images: {{ 'Pre-fetched for faster deployment' if prefetch_container_images else 'Not cached' }}
 
           Next steps:
           1. Create image snapshot from this instance

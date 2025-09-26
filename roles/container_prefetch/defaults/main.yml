@@ -1,0 +1,16 @@
+---
+# Default variables for container_prefetch role
+
+# Global enable/disable flag for container prefetching
+container_prefetch_enabled: true
+
+# Path to container images configuration file
+container_images_config_file: "{{ role_path }}/files/container_images.yml"
+
+# Container runtime configuration
+container_prefetch_containerd_socket: unix:///run/containerd/containerd.sock
+container_prefetch_namespace: "k8s.io"
+
+# Image pull retry configuration
+container_prefetch_image_pull_retries: 3
+container_prefetch_image_pull_delay: 5

@@ -62,29 +62,20 @@
     mode: '0755'
   become: true
 
-- name: Create .kube directory for ubuntu user
-  ansible.builtin.file:
-    path: /home/ubuntu/.kube
-    state: directory
-    owner: ubuntu
-    group: ubuntu
-    mode: '0755'
-  become: true
-
 - name: Add KUBECONFIG to ubuntu user's .bashrc
   ansible.builtin.lineinfile:
     path: /home/ubuntu/.bashrc
-    line: 'export KUBECONFIG=~/.kube/config'
+    line: 'export KUBECONFIG=/etc/rancher/rke2/rke2.yaml'
     create: true
     owner: ubuntu
     group: ubuntu
     mode: '0644'
   become: true
 
-- name: Add KUBECONFIG to ubuntu user's .profile
+- name: Add RKE2 bin directory to ubuntu user's PATH
   ansible.builtin.lineinfile:
-    path: /home/ubuntu/.profile
-    line: 'export KUBECONFIG=~/.kube/config'
+    path: /home/ubuntu/.bashrc
+    line: 'export PATH=/var/lib/rancher/rke2/bin:$PATH'
     create: true
     owner: ubuntu
     group: ubuntu
