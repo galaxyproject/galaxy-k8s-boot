@@ -49,20 +49,23 @@ below). By default, the playbook expects the disk to be mounted at
 `/mnt/block_storage` but this is configurable via `block_storage_disk_path`
 variable in the inventory file.
 
-You can use the following command to launch a VM:
+You can use the following command to launch a VM. The command includes
+`--metadata-from-file` option to bootstrap the VM automatically using the linked
+cloud-init script. If you'd like to manually run the playbook, omit that line.
 
 ```bash
 gcloud compute instances create ea-rke2-c \
   --project=anvil-and-terra-development \
   --zone=us-east4-c \
   --machine-type=e2-standard-4 \
-  --image=galaxy-k8s-boot-v2025-09-02 \
+  --image=galaxy-k8s-boot-v2025-09-26 \
   --image-project=anvil-and-terra-development \
   --boot-disk-size=100GB \
   --boot-disk-type=pd-balanced \
   --tags=k8s,http-server,https-server \
   --scopes=cloud-platform \
-  --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair"
+  --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair" \
+  --metadata-from-file=user-data=bin/user_data.sh
 ```
 
 Then, create mount the block storage disk. For dev purposes, you can skip this

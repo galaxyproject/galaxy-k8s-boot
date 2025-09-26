@@ -6,8 +6,8 @@
   become: true
   vars:
     # RKE2 configuration variables
-    rke2_token: "{{ rke2_cluster_token | default('defaultSecret12345') }}"
-    rke2_version: "{{ rke2_cluster_version | default('v1.33.4+rke2r1') }}"
+    rke2_token: "{{ rke2_cluster_token }}"
+    rke2_version: "{{ rke2_cluster_version }}"
     rke2_api_ip: "{{ hostvars[groups['masters'][0]]['ansible_default_ipv4']['address'] }}"
     rke2_download_kubeconf: true
     rke2_download_kubeconf_path: /tmp

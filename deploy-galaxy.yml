@@ -36,15 +36,6 @@
       shell: systemd-machine-id-setup
       become: true
 
-    - name: Ensure user kubeconfig directory
-      file:
-        path: "{{ ansible_env.HOME }}/.kube"
-        state: directory
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-        mode: '0755'
-      become: true
-
     - name: Create RKE2 server configuration for single-node cluster
       copy:
         dest: /etc/rancher/rke2/config.yaml
@@ -116,32 +107,6 @@
         /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/master- || true
       become: true
 
-    - name: Copy kubeconfig to user
-      copy:
-        src: /etc/rancher/rke2/rke2.yaml
-        dest: "{{ ansible_env.HOME }}/.kube/config"
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-        mode: '0600'
-        remote_src: true
-      become: true
-
-    - name: Fix user kubeconfig for SSH connections
-      replace:
-        path: "{{ ansible_env.HOME }}/.kube/config"
-        regexp: "server: https://{{ ansible_default_ipv4.address }}:6443"
-        replace: "server: https://127.0.0.1:6443"
-      become: true
-      when: ansible_connection != 'local'
-
-    - name: Also fix any 0.0.0.0 references in user kubeconfig (fallback)
-      replace:
-        path: "{{ ansible_env.HOME }}/.kube/config"
-        regexp: 'server: https://0\.0\.0\.0:6443'
-        replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
-      become: true
-      when: ansible_connection == 'local'
-
     - name: Add RKE2 bin directory to user's PATH
       lineinfile:
         path: "{{ ansible_env.HOME }}/.bashrc"
@@ -155,7 +120,7 @@
     - name: Add KUBECONFIG to user's environment
       lineinfile:
         path: "{{ ansible_env.HOME }}/.bashrc"
-        line: "export KUBECONFIG={{ ansible_env.HOME }}/.kube/config"
+        line: "export KUBECONFIG=/etc/rancher/rke2/rke2.yaml"
         create: true
         owner: "{{ ansible_user_id }}"
         group: "{{ ansible_user_gid }}"

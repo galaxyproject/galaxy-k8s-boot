@@ -9,15 +9,3 @@ ansible_user='ubuntu'
 ansible_ssh_private_key_file=~/.ssh/gcp-key
 ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 ansible_python_interpreter=/usr/bin/python3
-
-# Package versions (defaults from role, override if needed)
-# https://github.com/rancher/rke2/tags
-# rke2_version=v1.33.4+rke2r1
-# https://github.com/helm/helm/tags
-# helm_version=v3.17.4
-
-# Component installation control (all enabled by default)
-# install_base_packages=true
-# install_cvmfs=true
-# install_rke2_prerequisites=true
-# install_helm=true

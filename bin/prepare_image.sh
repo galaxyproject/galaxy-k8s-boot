@@ -26,19 +26,6 @@ OPTIONS:
     -v, --verbose          Verbose output
     -h, --help             Show this help message
 
-EXAMPLES:
-    # Basic usage for GCP
-    $0 -i inventories/my_image_prep
-
-    # With custom RKE2 version
-    $0 -i inventories/my_image_prep -e "rke2_version=v1.33.4+rke2r1"
-
-    # Dry run to see what would be done
-    $0 -i inventories/my_image_prep --dry-run
-
-    # Skip CVMFS installation
-    $0 -i inventories/my_image_prep -e "install_cvmfs=false"
-
 EOF
 }
 

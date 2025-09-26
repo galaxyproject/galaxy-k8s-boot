@@ -67,8 +67,7 @@ tested with the Ubuntu 24.04.
 gcloud compute images list \
   --project=ubuntu-os-cloud \
   --filter="family=ubuntu-minimal-2404-lts AND status=READY" \
-  --format="value(name)" \
-  --sort-by="~creationTimestamp"
+  --format="value(name)"
 ```
 
 Update the `--image` parameter in the instance creation command, as well as
@@ -79,7 +78,7 @@ gcloud compute instances create ea-mi \
   --project=anvil-and-terra-development \
   --zone=us-east4-b \
   --machine-type=n1-standard-2 \
-  --image=ubuntu-minimal-2404-noble-amd64-v20250828 \
+  --image=ubuntu-minimal-2404-noble-amd64-v20250923a \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=99GB \
   --tags=http-server,https-server \
@@ -108,7 +107,7 @@ gcloud compute instances stop ea-mi --zone=us-east4-b
 Create the image, updating the name and source disk as needed:
 
 ```bash
-gcloud compute images create galaxy-k8s-boot-v2025-09-02 \
+gcloud compute images create galaxy-k8s-boot-v2025-09-26 \
   --source-disk=ea-mi \
   --source-disk-zone=us-east4-b \
   --family=galaxy-k8s-boot \
@@ -127,10 +126,10 @@ Override variables in inventory or command line:
 
 ```bash
 # Different RKE2 version
--e "rke2_version=v1.33.4+rke2r1"
+-e "rke2_version=v1.34.1+rke2r1"
 
 # Different Helm version
--e "helm_version=v3.18.6"
+-e "helm_version=v3.19.0"
 
 # Skip CVMFS if not needed
 -e "install_cvmfs=false"

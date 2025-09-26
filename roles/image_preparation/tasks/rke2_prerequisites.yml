@@ -31,7 +31,7 @@
 
 - name: Install RKE2 binaries
   ansible.builtin.shell: |
-    INSTALL_RKE2_VERSION="{{ rke2_version | default('v1.33.4+rke2r1') }}" \
+    INSTALL_RKE2_VERSION="{{ rke2_version }}" \
     INSTALL_RKE2_TYPE=server \
     /tmp/install-rke2.sh
   args:
