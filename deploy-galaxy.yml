@@ -127,12 +127,10 @@
       become: true
 
     - name: Make root kubeconfig readable by ubuntu user for ansible-pull
-      acl:
+      file:
         path: /root/.kube/config
-        entity: ubuntu
-        etype: user
-        permissions: r
-        state: present
+        group: ubuntu
+        mode: '0640'
       become: true
       when: ansible_connection == 'local'
 
