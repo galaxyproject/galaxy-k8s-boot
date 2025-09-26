@@ -126,6 +126,16 @@
         remote_src: true
       become: true
 
+    - name: Make root kubeconfig readable by ubuntu user for ansible-pull
+      acl:
+        path: /root/.kube/config
+        entity: ubuntu
+        etype: user
+        permissions: r
+        state: present
+      become: true
+      when: ansible_connection == 'local'
+
     - name: Fix user kubeconfig for SSH connections
       replace:
         path: "{{ ansible_env.HOME }}/.kube/config"
