@@ -163,9 +163,15 @@
       become: true
 
     # Ensure kubeconfig is available for ansible kubernetes modules
-    - name: Set kubeconfig path fact
+    - name: Set kubeconfig path fact for local connections
+      set_fact:
+        kubeconfig_path: "{{ ansible_env.HOME }}/.kube/config:/root/.kube/config"
+      when: ansible_connection == 'local'
+
+    - name: Set kubeconfig path fact for SSH connections
       set_fact:
         kubeconfig_path: "{{ ansible_env.HOME }}/.kube/config"
+      when: ansible_connection != 'local'
 
 - name: Install NFS
   import_playbook: nfs.yml
