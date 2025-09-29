@@ -41,15 +41,23 @@ rabbitmq:
 configs:
   galaxy.yml:
     galaxy:
+      enable_beta_gdpr: true
       #require_login: true
-      show_welcome_with_login: true
+      # show_welcome_with_login: true
       # allow_user_creation: false
+      tus_upload_store: /galaxy/server/database/tmp/tus_upload_store
+      # The URL linked by the "Galaxy/brand" text
+      logo_url: https://anvil.terra.bio/#workspaces
+      # The brand image source
+      logo_src: /static/images/galaxy_project_logo_white_square.png
+      # The custom brand image source
+      logo_src_secondary: /static/images/anvilwhite.png
       enable_quotas: true
   job_conf.yml:
     limits:
       - type: total_walltime
         window: 1  # number in days
-        value: '00:00:30'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
+        value: '24:00:00'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
 
 extraFileMappings:
   /galaxy/server/static/welcome.html:

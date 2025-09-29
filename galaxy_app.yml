@@ -54,10 +54,15 @@
         values_files:
           - /tmp/values.yml
         values:
+          persistence:
+            size: "{{ gxy_persistence_size | default('20Gi') }}"
+          postgresql:
+            galaxyDatabasePassword: "{{ gxy_db_password | default('galaxydbpassword') }}"
           configs:
             galaxy.yml:
               galaxy:
-                admin_users: "{{ gxy_admin_users }}"
+                single_user: "{{ gxy_user }}"
+                admin_users: "{{ gxy_user }}"
                 master_api_key: "{{ gxy_api_key | default(omit) }}"
           jobs:
             rules:
@@ -66,5 +71,3 @@
                   k8s:
                     max_cores: "{{ job_max_cores }}"
                     max_mem: "{{ job_max_mem }}"
-#        postgresql:
-#          galaxyDatabasePassword: galaxydbpassword

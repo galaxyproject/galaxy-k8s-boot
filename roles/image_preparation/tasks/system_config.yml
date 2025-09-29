@@ -70,7 +70,6 @@
     owner: ubuntu
     group: ubuntu
     mode: '0644'
-  become: true
 
 - name: Add RKE2 bin directory to ubuntu user's PATH
   ansible.builtin.lineinfile:
@@ -80,4 +79,20 @@
     owner: ubuntu
     group: ubuntu
     mode: '0644'
-  become: true
+
+- name: Download LS_COLORS configuration
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/trapd00r/LS_COLORS/master/LS_COLORS
+    dest: /home/ubuntu/.LS_COLORS
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+
+- name: Enable LS_COLORS in ubuntu user's .bashrc
+  ansible.builtin.lineinfile:
+    path: /home/ubuntu/.bashrc
+    line: 'eval "$(dircolors -b ~/.LS_COLORS)"'
+    create: true
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'

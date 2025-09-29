@@ -41,17 +41,46 @@ sudo apt install ansible
 
 ### Launching the VM
 
-When launching a VM, use Ubuntu 24.04 image, root file system should be at least
-30GB, attach a security group with ports 22 and 80 open, and on AWS enable V1
-metadata service. Also attach a block storage disk (minimum size of the disk
-should be 100GB), create a file system on the disk, and mount it (see commands
-below). By default, the playbook expects the disk to be mounted at
-`/mnt/block_storage` but this is configurable via `block_storage_disk_path`
-variable in the inventory file.
+Use the provided launch script to create a VM. The script handles both
+persistent disk creation and existing disk attachment scenarios.
 
-You can use the following command to launch a VM. The command includes
-`--metadata-from-file` option to bootstrap the VM automatically using the linked
-cloud-init script. If you'd like to manually run the playbook, omit that line.
+The VM uses Ubuntu 24.04 image with a root file system of at least 30GB.
+Security groups should have ports 22 and 80 open. The persistent disk is
+automatically formatted, mounted at `/mnt/block_storage`, and configured for the
+Galaxy deployment.
+
+```bash
+bin/launch_vm.sh -k "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9..." INSTANCE_NAME
+```
+
+#### Script Parameters
+
+- `-k, --ssh-key`: SSH public key for the ubuntu user (required)
+- `-d, --disk-name`: Name of persistent disk (default: galaxy-data-INSTANCE_NAME)
+- `-s, --disk-size`: Size of persistent disk (default: 150GB)
+- `-p, --project`: GCP project ID (default: anvil-and-terra-development)
+- `-z, --zone`: GCP zone (default: us-east4-c)
+- `-m, --machine-type`: Machine type (default: e2-standard-4)
+- `--ephemeral-only`: Create VM without persistent disk
+
+#### Monitoring Deployment
+
+After launching, you can monitor the deployment progress:
+
+```bash
+# Watch cloud-init output
+gcloud compute ssh INSTANCE_NAME --command='sudo tail -f /var/log/cloud-init-output.log'
+
+# Monitor deployment logs
+gcloud compute ssh INSTANCE_NAME --command='sudo journalctl -f -u cloud-final'
+```
+
+Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
+(typically ~6 minutes).
+
+#### Advanced: Manual VM Creation
+
+If you prefer to use the `gcloud` command directly, you can do so with:
 
 ```bash
 gcloud compute instances create ea-rke2-c \
@@ -62,19 +91,39 @@ gcloud compute instances create ea-rke2-c \
   --image-project=anvil-and-terra-development \
   --boot-disk-size=100GB \
   --boot-disk-type=pd-balanced \
+  --create-disk=name=galaxy-data-disk,size=150GB,type=pd-balanced,device-name=galaxy-data,auto-delete=no \
   --tags=k8s,http-server,https-server \
   --scopes=cloud-platform \
   --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair" \
   --metadata-from-file=user-data=bin/user_data.sh
 ```
 
-Then, create mount the block storage disk. For dev purposes, you can skip this
-step and any data managed by Galaxy will be ephemeral.
+For attaching an existing disk instead, use
+`--disk=name=your-disk-name,device-name=galaxy-data,mode=rw` instead of the
+`--create-disk` option.
+
+
+## Deleting the VM
+
+**Note:** If you will want to redeploy an existing instance (ie, keep the data),
+before deleting it, make sure to record the ID of the Galaxy PVC. You can find
+it by running:
 
 ```bash
-sudo mkfs -t ext4 /dev/nvme1n1
-sudo mkdir /mnt/block_storage
-sudo mount /dev/nvme1n1 /mnt/block_storage
+kubectl get pvc -n galaxy
+```
+
+Before deleting the VM, uninstall the Galaxy Helm chart to ensure all resources
+are properly cleaned up:
+
+```bash
+helm uninstall -n galaxy galaxy --wait
+helm uninstall -n galaxy-deps galaxy-deps --wait
+```
+Then, delete the VM using:
+
+```bash
+gcloud compute instances delete INSTANCE_NAME --zone=us-east4-c [--quiet]
 ```
 
 ## TODO: Update docs below. Currently out of sync with the code.

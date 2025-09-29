@@ -13,10 +13,13 @@
   ignore_errors: true
   become: true
 
-- name: Clear bash history
-  ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/.bash_history"
-    state: absent
+- name: Reset history
+  ansible.builtin.copy:
+    content: |
+      kubectl config view --raw
+      tail -n +1 -f /var/log/cloud-init-output.log
+    dest: "{{ ansible_env.HOME }}/.bash_history"
+    mode: "0600"
   ignore_errors: true
 
 - name: Clear root bash history
