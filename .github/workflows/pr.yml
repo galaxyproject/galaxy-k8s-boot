@@ -1,0 +1,37 @@
+name: Test pull requests
+description: "Test the playbook using the galaxy-k8s action"
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  run:
+    name: Install Kubernetes and Galaxy
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install Kubernetes and Galaxy
+      uses: ksuderman/galaxy-k8s-action@v1
+      with:
+        api-key: secret
+        playbook-repo: ${{ github.event.pull_request.head.repo.full_name }}
+        playbook-ref: ${{ github.event.pull_request.head.ref }}
+
+    - name: Create a Galaxy user
+      run: |
+        cat > /tmp/user.json << EOF
+        {
+          "email": "admin@example.com",
+          "password": "galaxypassword",
+          "username": "admin"
+        }
+        EOF
+        response=$(curl -s -H "x-api-key: secret" -H "Content-Type: application/json" -d @/tmp/user.json http://localhost/api/users)
+        echo $response | jq
+        error=$(echo $response | jq -r .err_msg)
+        if [[ $error != null ]]; then
+            echo "Error creating user: $error"
+            exit 1
+        fi
+  
