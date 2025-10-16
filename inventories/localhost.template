@@ -1,0 +1,13 @@
+# Localhost inventory template for bare Ubuntu VM deployments
+# This template is used by deployment scripts to generate inventory files
+# Variables __HOST__ and __USER__ are replaced at runtime
+
+[bare_vm]
+__HOST__ ansible_connection=local ansible_user=__USER__ ansible_python_interpreter="/usr/bin/python3"
+
+[all:vars]
+# RKE2 Configuration
+rke2_token="defaultSecret12345"
+rke2_additional_sans=["__HOST__"]
+rke2_disable=["rke2-traefik", "rke2-ingress-nginx"]
+rke2_debug=true

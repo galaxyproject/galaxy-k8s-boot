@@ -1,0 +1,9 @@
+---
+# Handlers for galaxy_k8s_deployment role
+
+- name: restart rke2-server
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: restarted
+    daemon_reload: true
+  become: true

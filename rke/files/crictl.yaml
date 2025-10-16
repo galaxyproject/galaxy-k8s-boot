@@ -1,1 +1,0 @@
-runtime-endpoint: unix:///run/k3s/containerd/containerd.sock

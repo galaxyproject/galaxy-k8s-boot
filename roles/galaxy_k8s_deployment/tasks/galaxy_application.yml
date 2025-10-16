@@ -1,0 +1,64 @@
+---
+# Galaxy Application Setup Tasks
+- name: Add CloudVE Helm repository
+  kubernetes.core.helm_repository:
+    name: cloudve
+    repo_url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+    state: present
+
+- name: Create the galaxy-deps namespace
+  kubernetes.core.k8s:
+    kind: Namespace
+    name: galaxy-deps
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+
+- name: Helm install galaxy-deps
+  kubernetes.core.helm:
+    name: galaxy-deps
+    namespace: galaxy-deps
+    chart_ref: "cloudve/galaxy-deps"
+    chart_version: "{{ galaxy_deps_version }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+
+- name: Create the galaxy namespace
+  kubernetes.core.k8s:
+    kind: Namespace
+    name: galaxy
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+
+- name: Copy the values file to the remote host
+  ansible.builtin.copy:
+    src: "{{ galaxy_values_file }}"
+    dest: /tmp/values.yml
+    mode: '0644'
+
+- name: Helm install Galaxy
+  kubernetes.core.helm:
+    name: galaxy
+    namespace: galaxy
+    chart_ref: "{{ galaxy_chart }}"
+    chart_version: "{{ galaxy_chart_version }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+    update_repo_cache: true
+    values_files:
+      - /tmp/values.yml
+    values:
+      persistence:
+        size: "{{ galaxy_persistence_size }}"
+      postgresql:
+        galaxyDatabasePassword: "{{ galaxy_db_password }}"
+      configs:
+        galaxy.yml:
+          galaxy:
+            single_user: "{{ galaxy_user }}"
+            admin_users: "{{ galaxy_user }}"
+            master_api_key: "{{ galaxy_api_key | default(omit) }}"
+      jobs:
+        rules:
+          tpv_rules_local.yml:
+            destinations:
+              k8s:
+                max_cores: "{{ galaxy_job_max_cores }}"
+                max_mem: "{{ galaxy_job_max_mem }}"

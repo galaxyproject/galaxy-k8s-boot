@@ -23,9 +23,18 @@ runcmd:
   - cat /dev/urandom | tr -dc 'a-zA-Z0-9_+-' | head -c 32 > /run/galaxy_api_key
   - cat /dev/urandom | tr -dc 'a-zA-Z0-9_+-' | head -c 32 > /run/pulsar_api_key
   - git clone https://github.com/galaxyproject/galaxy-k8s-boot.git /run/galaxy-k8s-boot
-  - cd /run/galaxy-k8s-boot && cat inventories/localhost.template | sed "s/__HOST__/$(curl -s ifconfig.me)/" | sed "s/__USER__/ubuntu/" > inventories/localhost
+  - |
+    HOST_IP=$(curl -s ifconfig.me)
+    mkdir -p /run/galaxy-k8s-boot/inventories
+    cat > /run/galaxy-k8s-boot/inventories/localhost << EOF
+    [vm]
+    ${HOST_IP} ansible_connection=local ansible_user=ubuntu ansible_python_interpreter="/usr/bin/python3"
+
+    [all:vars]
+    setup_system=true
+    rke2_token="defaultSecret12345"
+    rke2_additional_sans=["${HOST_IP}"]
+    rke2_disable=["rke2-traefik", "rke2-ingress-nginx"]
+    rke2_debug=true
+    EOF
   - cd /run/galaxy-k8s-boot && ansible-playbook -i inventories/localhost playbook.yml --extra-vars "job_max_cores=$(($(nproc) - 2))" --extra-vars "job_max_mem=$(($(free -m | awk '/^Mem:/{print $2}') - 6144))" --extra-vars "application=galaxy" --extra-vars "galaxy_api_key=$(cat /run/galaxy_api_key)" --extra-vars "pulsar_api_key=$(cat /run/pulsar_api_key)"
-
-
-
-

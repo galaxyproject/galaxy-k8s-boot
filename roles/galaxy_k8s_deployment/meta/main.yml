@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  role_name: galaxy_k8s_deployment
+  author: Galaxy Team
+  description: Complete Galaxy deployment on RKE2 Kubernetes cluster
+  company: Galaxy Project
+  license: MIT
+  min_ansible_version: "2.10"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags:
+    - galaxy
+    - kubernetes
+    - rke2
+    - helm
+    - deployment
+
+dependencies:
+  - role: galaxyproject.cvmfs
+    when: (setup_system | default(false)) and (setup_cvmfs | default(true))

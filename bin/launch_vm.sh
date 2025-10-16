@@ -9,8 +9,8 @@ set -e
 PROJECT="anvil-and-terra-development"
 ZONE="us-east4-c"
 MACHINE_TYPE="e2-standard-4"
-IMAGE="galaxy-k8s-boot-v2025-09-26"
-BOOT_DISK_SIZE="99GB"
+MACHINE_IMAGE="galaxy-k8s-boot-v2025-09-26"
+BOOT_DISK_SIZE="100GB"
 DISK_SIZE="150GB"
 DISK_TYPE="pd-balanced"
 
@@ -32,6 +32,7 @@ Required Arguments:
 Options:
   -p, --project PROJECT        GCP project ID (default: $PROJECT)
   -z, --zone ZONE             GCP zone (default: $ZONE)
+  -i, --machine-image IMAGE   Machine image name (default: $MACHINE_IMAGE)
   -d, --disk-name DISK_NAME   Name of persistent disk (default: galaxy-data-INSTANCE_NAME)
   -s, --disk-size SIZE        Size of persistent disk (default: $DISK_SIZE)
   -k, --ssh-key SSH_KEY       SSH public key for ubuntu user (required)
@@ -42,6 +43,9 @@ Options:
 Examples:
   # Launch VM with new or existing disk
   $0 -k "ssh-rsa AAAAB3..." my-galaxy-vm
+
+  # Launch VM with specific machine image
+  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2025-09-26 my-galaxy-vm
 
   # Launch VM with specific disk name
   $0 -k "ssh-rsa AAAAB3..." -d galaxy-shared-disk my-galaxy-vm
@@ -61,6 +65,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -z|--zone)
             ZONE="$2"
+            shift 2
+            ;;
+        -i|--machine-image)
+            MACHINE_IMAGE="$2"
             shift 2
             ;;
         -d|--disk-name)
@@ -128,6 +136,7 @@ echo "Instance Name: $INSTANCE_NAME"
 echo "Project: $PROJECT"
 echo "Zone: $ZONE"
 echo "Machine Type: $MACHINE_TYPE"
+echo "Machine Image: $MACHINE_IMAGE"
 
 if [ "$EPHEMERAL_ONLY" = false ]; then
     echo "Disk Name: $DISK_NAME"
@@ -177,7 +186,7 @@ GCLOUD_CMD=(
     --project="$PROJECT"
     --zone="$ZONE"
     --machine-type="$MACHINE_TYPE"
-    --image="$IMAGE"
+    --image="$MACHINE_IMAGE"
     --image-project="$PROJECT"
     --boot-disk-size="$BOOT_DISK_SIZE"
     --boot-disk-type="$DISK_TYPE"

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The playbook in this repo provides is used to build a VM image for deploying
+The playbook in this repo is used to build a VM image for deploying
 Galaxy. Having a custom image allows for faster deployments and a more
 consistent environment. The playbook is designed to work with Ubuntu. Once
 built, the image can be used to quickly deploy Galaxy instances on Kubernetes
@@ -47,8 +47,8 @@ roles/image_preparation/
 │   ├── helm.yml             # Helm installation
 │   └── cleanup.yml          # Image cleanup
 
-image_prep.yml               # Main playbook for builing the image
-deploy-galaxy.yml            # Deployment playbook using the prepared image
+image_prep.yml               # Main playbook for building the image
+playbook.yml                 # Deployment playbook using the prepared image
 
 inventories/
 └── image_prep.ini.example   # GCP-focused example
@@ -78,9 +78,9 @@ gcloud compute instances create ea-mi \
   --project=anvil-and-terra-development \
   --zone=us-east4-b \
   --machine-type=n1-standard-2 \
-  --image=ubuntu-minimal-2404-noble-amd64-v20250923a \
+  --image=ubuntu-minimal-2404-noble-amd64-v20251002 \
   --image-project=ubuntu-os-cloud \
-  --boot-disk-size=99GB \
+  --boot-disk-size=100GB \
   --tags=http-server,https-server \
   --service-account=ea-dev@anvil-and-terra-development.iam.gserviceaccount.com \
   --scopes=https://www.googleapis.com/auth/cloud-platform \
@@ -117,8 +117,8 @@ gcloud compute images create galaxy-k8s-boot-v2025-09-26 \
 ### 4. Deploy Galaxy Cluster
 
 Once the image is created, you can deploy a Galaxy cluster using the prepared
-image. Use the `deploy.yml` to set up the cluster, which has its own
-documentation.
+image. Use the `playbook.yml` to set up the cluster, which has its own
+documentation in the main README.
 
 ## Customization
 
@@ -130,7 +130,4 @@ Override variables in inventory or command line:
 
 # Different Helm version
 -e "helm_version=v3.19.0"
-
-# Skip CVMFS if not needed
--e "install_cvmfs=false"
 ```

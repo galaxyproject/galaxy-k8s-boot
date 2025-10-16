@@ -1,0 +1,16 @@
+# Container images to pre-fetch for faster Galaxy K8s deployment
+container_images:
+- docker.io/bitnamilegacy/kubectl:latest
+- docker.io/bitnamilegacy/rabbitmq:3.10.7-debian-11-r3
+- docker.io/rancher/hardened-calico:v3.30.3-build20250909
+- docker.io/rancher/hardened-kubernetes:v1.34.1-rke2r1-build20250910
+- docker.io/rancher/rke2-runtime:v1.34.1-rke2r1
+- ghcr.io/cloudnative-pg/postgresql:17.2
+- quay.io/galaxyproject/galaxy-min:25.0.2
+- registry.k8s.io/sig-storage/nfs-provisioner:v4.0.8
+- docker.io/bitnamilegacy/rabbitmq-cluster-operator:1.14.0-scratch-r5
+- docker.io/bitnamilegacy/rmq-messaging-topology-operator:1.7.1-scratch-r3
+- registry.cern.ch/magnum/cvmfs-csi:v2.2.0
+- registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.8.0
+- registry.k8s.io/sig-storage/csi-provisioner:v3.5.0
+- ghcr.io/cloudnative-pg/cloudnative-pg:1.25.0
