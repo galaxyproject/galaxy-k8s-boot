@@ -1,0 +1,80 @@
+---
+# RKE2 Cluster Setup Tasks
+- name: Create RKE2 configuration directory
+  ansible.builtin.file:
+    path: /etc/rancher/rke2
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Create RKE2 server configuration for single-node cluster
+  ansible.builtin.copy:
+    dest: /etc/rancher/rke2/config.yaml
+    mode: '0600'
+    content: |
+      write-kubeconfig-mode: "0644"
+      cluster-init: true
+      token: "{{ rke2_token }}"
+      advertise-address: "{{ ansible_default_ipv4.address }}"
+      tls-san:
+        - "{{ ansible_default_ipv4.address }}"
+        - "{{ ansible_ssh_host | default(ansible_host) }}"
+        - 127.0.0.1
+        - localhost
+        - 0.0.0.0
+      {% for san in rke2_additional_sans | default([]) %}
+        - "{{ san }}"
+      {% endfor %}
+      bind-address: "0.0.0.0"
+      disable:
+      {% for component in rke2_disable | default(['rke2-traefik', 'rke2-ingress-nginx']) %}
+        - "{{ component }}"
+      {% endfor %}
+      cni:
+        - canal
+      {% if rke2_debug | default(false) %}
+      debug: true
+      {% endif %}
+  become: true
+  notify: restart rke2-server
+
+- name: Start and enable RKE2 server
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Wait for RKE2 server to be ready
+  ansible.builtin.wait_for:
+    port: 6443
+    host: "{{ ansible_default_ipv4.address }}"
+    delay: 10
+    timeout: 300
+
+- name: Fix any 0.0.0.0 references in kubeconfig
+  ansible.builtin.replace:
+    path: /etc/rancher/rke2/rke2.yaml
+    regexp: 'server: https://0\.0\.0\.0:6443'
+    replace: "server: https://{{ ansible_default_ipv4.address }}:6443"
+  become: true
+
+- name: Fix kubeconfig server address for SSH connections
+  ansible.builtin.replace:
+    path: /etc/rancher/rke2/rke2.yaml
+    regexp: "server: https://{{ ansible_default_ipv4.address }}:6443"
+    replace: "server: https://127.0.0.1:6443"
+  become: true
+  when: ansible_connection != 'local'
+
+- name: Remove master node taint to allow workload scheduling
+  ansible.builtin.shell: |
+    /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/control-plane- || true
+    /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/master- || true
+  become: true
+  changed_when: false
+
+- name: Set kubeconfig path fact
+  ansible.builtin.set_fact:
+    kubeconfig_path: "/etc/rancher/rke2/rke2.yaml"

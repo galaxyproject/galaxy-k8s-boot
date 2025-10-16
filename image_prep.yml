@@ -50,9 +50,6 @@
 
     - role: image_preparation
 
-    - role: container_prefetch
-      when: prefetch_container_images | bool
-
   post_tasks:
     - name: Verify CVMFS client installed
       ansible.builtin.command: which cvmfs_config

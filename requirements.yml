@@ -1,14 +1,16 @@
 ---
-# Ansible Galaxy requirements
+# External Ansible roles and collections required for galaxy-k8s-boot
 
 collections:
   - name: community.general
-    version: ">=3.0.0"
+    version: ">=11.3.0"
   - name: ansible.posix
-    version: ">=1.0.0"
+    version: ">=2.1.0"
   - name: kubernetes.core
-    version: ">=2.0.0"
+    version: ">=6.1.0"
 
 roles:
   - name: galaxyproject.cvmfs
-    version: "0.3.2"
+    version: ">=0.3.2"
+  - name: lablabs.rke2
+    version: ">=1.48.0"

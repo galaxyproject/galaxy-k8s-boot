@@ -16,10 +16,12 @@
 - name: Reset history
   ansible.builtin.copy:
     content: |
-      kubectl config view --raw
       tail -n +1 -f /var/log/cloud-init-output.log
-    dest: "{{ ansible_env.HOME }}/.bash_history"
+      kubectl config view --raw
+    dest: "/home/ubuntu/.bash_history"
     mode: "0600"
+    owner: ubuntu
+    group: ubuntu
   ignore_errors: true
 
 - name: Clear root bash history

@@ -1,0 +1,31 @@
+---
+# Main tasks file for galaxy_k8s_deployment role
+# This orchestrates all the components needed for Galaxy deployment
+
+- name: Include system setup tasks
+  ansible.builtin.include_tasks: system_setup.yml
+  when: setup_system | default(true)
+
+- name: Include RKE2 cluster setup tasks
+  ansible.builtin.include_tasks: rke2_setup.yml
+  when: setup_rke2 | default(true)
+
+- name: Include NFS storage setup tasks
+  ansible.builtin.include_tasks: nfs_setup.yml
+  when: setup_nfs | default(true)
+
+- name: Include Kubernetes storage setup tasks
+  ansible.builtin.include_tasks: storage_setup.yml
+  when: setup_storage | default(true)
+
+- name: Include Kubernetes ingress setup tasks
+  ansible.builtin.include_tasks: ingress_setup.yml
+  when: setup_ingress | default(true)
+
+- name: Include Galaxy application setup tasks
+  ansible.builtin.include_tasks: galaxy_application.yml
+  when: deploy_galaxy | default(false)
+
+- name: Include Pulsar application setup tasks
+  ansible.builtin.include_tasks: pulsar_application.yml
+  when: deploy_pulsar | default(false)

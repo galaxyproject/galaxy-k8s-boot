@@ -1,0 +1,21 @@
+---
+# Helm Setup Tasks
+- name: Install Helm
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: "set -o pipefail && curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash -s"
+    creates: /usr/local/bin/helm
+  become: true
+
+- name: Remove existing stable Helm repo
+  kubernetes.core.helm_repository:
+    name: stable
+    state: absent
+
+- name: Install Helm repositories
+  kubernetes.core.helm_repository:
+    name: "{{ item.name }}"
+    state: present
+    repo_url: "{{ item.url }}"
+    force_update: true
+  loop: "{{ helm_repositories }}"

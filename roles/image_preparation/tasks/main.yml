@@ -15,5 +15,9 @@
   ansible.builtin.include_tasks: helm.yml
   when: install_helm | default(true)
 
+- name: Include container prefetch tasks
+  ansible.builtin.include_tasks: container_prefetch.yml
+  when: prefetch_container_images | default(true)
+
 - name: Include cleanup tasks
   ansible.builtin.include_tasks: cleanup.yml

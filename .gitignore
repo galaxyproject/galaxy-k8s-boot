@@ -7,3 +7,4 @@ ansible.cfg
 sa-key.json
 kubeconfig.yaml
 image_prep.ini
+vm.ini
