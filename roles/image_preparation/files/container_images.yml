@@ -6,7 +6,7 @@ container_images:
 - docker.io/rancher/hardened-kubernetes:v1.34.1-rke2r1-build20250910
 - docker.io/rancher/rke2-runtime:v1.34.1-rke2r1
 - ghcr.io/cloudnative-pg/postgresql:17.2
-- quay.io/galaxyproject/galaxy-min:25.0.2
+- quay.io/galaxyproject/galaxy-min:25.1-auto
 - registry.k8s.io/sig-storage/nfs-provisioner:v4.0.8
 - docker.io/bitnamilegacy/rabbitmq-cluster-operator:1.14.0-scratch-r5
 - docker.io/bitnamilegacy/rmq-messaging-topology-operator:1.7.1-scratch-r3

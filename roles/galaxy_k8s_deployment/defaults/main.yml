@@ -57,7 +57,7 @@ ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=rea
 
 # Galaxy Application Configuration
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.5.0"
+galaxy_chart_version: "6.5.1-dev"
 galaxy_deps_version: "1.1.1"
 galaxy_values_file: "values/values.yml"
 galaxy_persistence_size: "20Gi"

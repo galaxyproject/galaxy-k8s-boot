@@ -3,14 +3,12 @@
 
 collections:
   - name: community.general
-    version: ">=11.3.0"
+    version: ">=11.3.0,<12.0.0"
   - name: ansible.posix
-    version: ">=2.1.0"
+    version: ">=2.1.0,<3.0.0"
   - name: kubernetes.core
-    version: ">=6.1.0"
+    version: ">=6.1.0,<7.0.0"
 
 roles:
   - name: galaxyproject.cvmfs
-    version: ">=0.3.2"
-  - name: lablabs.rke2
-    version: ">=1.48.0"
+    version: "0.3.2"

@@ -24,7 +24,7 @@
   become: true
   when: rke2_binary.stat.exists
 
-- name: Pre-fetch container images using RKE2's containerd
+- name: Pre-fetch container images
   ansible.builtin.command: ctr --address /run/k3s/containerd/containerd.sock -n k8s.io images pull {{ item }}
   register: pull_result
   failed_when: false
@@ -74,7 +74,7 @@
   become: true
   when: rke2_binary.stat.exists
 
-- name: Clean up CNI and runtime state (with force removal)
+- name: Clean up CNI and runtime state
   ansible.builtin.shell: |
     rm -rf /var/lib/cni || true
     rm -rf /run/k3s || true
