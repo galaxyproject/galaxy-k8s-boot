@@ -165,7 +165,10 @@ if [ "$EPHEMERAL_ONLY" = false ]; then
     fi
 
     # Calculate disk persistence size in Gi (K8s will not accept size in GB)
-    PV_SIZE=$((DISK_SIZE_GB * 0.93))
+    # Convert GB to GiB: GiB = GB * (1000^3 / 1024^3) ≈ GB * 0.931
+    # Using integer arithmetic: GiB = (GB * 931) / 1000
+    PV_SIZE=$(( (DISK_SIZE_GB * 931) / 1000 ))
+    echo "ℹ NFS storage will be configured for ${PV_SIZE}Gi (converted from ${DISK_SIZE_GB}GB disk)"
 else
     echo "ℹ Using ephemeral storage only (no persistent disk)."
 fi
