@@ -36,8 +36,11 @@ runcmd:
     export HOME=/home/ubuntu
     HOST_IP=$(curl -s ifconfig.me)
 
-    # Get Galaxy persistence size from metadata if available
-    GXY_PERSISTENCE_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gxy-persistence-size" -H "Metadata-Flavor: Google" 2>/dev/null || echo "20Gi")
+    # Get persistence size from metadata if available
+    PERSISTENT_DISK_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/persistent-disk-size" -H "Metadata-Flavor: Google" 2>/dev/null || echo "20GB")
+    # Remove 'GB' suffix for Ansible variable and deduct 10GB for system use
+    GALAXY_PERSISTENCE_SIZE=$(( ${PERSISTENT_DISK_SIZE%GB} - 10 ))
+
 
     mkdir -p /tmp/ansible-inventory
     cat > /tmp/ansible-inventory/localhost << EOF
@@ -48,16 +51,15 @@ runcmd:
     ansible_user="ubuntu"
     rke2_token="defaultSecret12345"
     rke2_additional_sans=["${HOST_IP}"]
-    rke2_bind_address="0.0.0.0"
-    rke2_disable=["rke2-traefik", "rke2-ingress-nginx"]
     rke2_debug=true
-    gxy_persistence_size="${GXY_PERSISTENCE_SIZE}"
-    gxy_db_password="gxy-db-password"
-    gxy_user="dev@galaxyproject.org"
+    nfs_size="${PERSISTENT_DISK_SIZE}"
+    galaxy_persistence_size="${GALAXY_PERSISTENCE_SIZE}GB"
+    galaxy_db_password="gxy-db-password"
+    galaxy_user="dev@galaxyproject.org"
     EOF
 
+    echo "[`date`] - NFS storage size for Galaxy: ${PERSISTENT_DISK_SIZE}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
-    echo "[`date`] - Galaxy persistence size: ${GXY_PERSISTENCE_SIZE}"
 
     ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U https://github.com/galaxyproject/galaxy-k8s-boot.git -C refactoring -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 playbook.yml
 

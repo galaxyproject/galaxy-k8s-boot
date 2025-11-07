@@ -29,5 +29,3 @@
         setup_ingress: true
         deploy_galaxy: "{{ application | default('galaxy') == 'galaxy' }}"
         deploy_pulsar: "{{ application | default('galaxy') == 'pulsar' }}"
-        galaxy_values_file: "values/{{ chart_values_file | default('values.yml') }}"
-        galaxy_user: "{{ galaxy_admin_users | default('admin@galaxyproject.org') }}"

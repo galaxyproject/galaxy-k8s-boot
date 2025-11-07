@@ -42,7 +42,7 @@ helm_repositories:
 # NFS Storage Configuration
 nfs_version: "1.8.0"
 nfs_persistence_storage_class: blockstorage
-nfs_size: "10Gi"
+nfs_size: "10GB"
 nfs_default: false
 nfs_allow_expansion: true
 nfs_reclaim: Delete
@@ -62,7 +62,7 @@ galaxy_deps_version: "1.1.1"
 galaxy_values_file: "values/values.yml"
 galaxy_persistence_size: "20Gi"
 galaxy_db_password: "galaxydbpassword"
-galaxy_user: "admin@galaxy.org"
+galaxy_user: "default-user@galaxyproject.org"
 galaxy_api_key: ""
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4

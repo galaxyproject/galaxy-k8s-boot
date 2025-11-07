@@ -150,31 +150,21 @@ DISK_FLAG=""
 if [ "$EPHEMERAL_ONLY" = false ]; then
     # Check if disk exists
     if gcloud compute disks describe "$DISK_NAME" --project="$PROJECT" --zone="$ZONE" &>/dev/null; then
-        echo "✓ Disk '$DISK_NAME' already exists, will attach existing disk"
+        echo "✓ Disk '$DISK_NAME' already exists, will attach existing disk."
         DISK_FLAG="--disk=name=$DISK_NAME,device-name=galaxy-data,mode=rw"
 
         # Get existing disk size
         EXISTING_DISK_SIZE=$(gcloud compute disks describe "$DISK_NAME" --project="$PROJECT" --zone="$ZONE" --format='get(sizeGb)')
         DISK_SIZE_GB="$EXISTING_DISK_SIZE"
     else
-        echo "ℹ Disk '$DISK_NAME' does not exist, will create new disk ($DISK_SIZE)"
+        echo "ℹ Disk '$DISK_NAME' does not exist, will create new disk ($DISK_SIZE)."
         DISK_FLAG="--create-disk=name=$DISK_NAME,size=$DISK_SIZE,type=$DISK_TYPE,device-name=galaxy-data,auto-delete=no"
 
         # Extract numeric value from DISK_SIZE (remove 'GB' suffix)
         DISK_SIZE_GB="${DISK_SIZE%GB}"
     fi
-
-    # Calculate Galaxy persistence size (disk size minus 50GB)
-    GALAXY_PERSISTENCE_SIZE=$((DISK_SIZE_GB - 50))
-
-    if [ $GALAXY_PERSISTENCE_SIZE -lt 10 ]; then
-        echo "Warning: Calculated Galaxy persistence size (${GALAXY_PERSISTENCE_SIZE}Gi) is very small. Consider using a larger disk."
-        GALAXY_PERSISTENCE_SIZE=10
-    fi
-
-    echo "ℹ Galaxy persistence will be configured for ${GALAXY_PERSISTENCE_SIZE}Gi"
 else
-    echo "ℹ Using ephemeral storage only (no persistent disk)"
+    echo "ℹ Using ephemeral storage only (no persistent disk)."
 fi
 
 # Launch the VM
@@ -198,7 +188,7 @@ GCLOUD_CMD=(
 # Build metadata string
 METADATA="ssh-keys=ubuntu:$SSH_KEY"
 if [ "$EPHEMERAL_ONLY" = false ]; then
-    METADATA="${METADATA},gxy-persistence-size=${GALAXY_PERSISTENCE_SIZE}Gi"
+    METADATA="${METADATA},persistent-disk-size=${DISK_SIZE_GB}GB"
 fi
 
 # Add combined metadata
@@ -213,7 +203,7 @@ fi
 "${GCLOUD_CMD[@]}"
 
 echo ""
-echo "✓ Instance '$INSTANCE_NAME' created successfully!"
+echo "✓ Instance '$INSTANCE_NAME' created successfully."
 echo ""
 
 # Get the instance IP address
