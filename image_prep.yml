@@ -51,13 +51,20 @@
         mode: '0644'
       when: install_rke2_prerequisites | bool
 
+    - name: Create system-wide Ansible roles directory
+      ansible.builtin.file:
+        path: /usr/share/ansible/roles
+        state: directory
+        mode: '0755'
+      when: install_rke2_prerequisites | bool
+
     - name: Install Ansible collections from requirements.yml
       ansible.builtin.command: ansible-galaxy collection install -r /tmp/galaxy-k8s-boot-requirements.yml
       changed_when: true
       when: install_rke2_prerequisites | bool
 
-    - name: Install Ansible roles from requirements.yml
-      ansible.builtin.command: ansible-galaxy role install -r /tmp/galaxy-k8s-boot-requirements.yml
+    - name: Install Ansible roles from requirements.yml to system location
+      ansible.builtin.command: ansible-galaxy role install -r /tmp/galaxy-k8s-boot-requirements.yml -p /usr/share/ansible/roles
       changed_when: true
       when: install_rke2_prerequisites | bool
 
@@ -153,8 +160,8 @@
         msg: "{{ item.cmd }} -> {{ item.stdout | default(item.stderr) }}"
       loop: "{{ version_checks.results }}"
 
-    - name: Verify Ansible roles are installed
-      ansible.builtin.command: ansible-galaxy role list
+    - name: Verify Ansible roles are installed in system location
+      ansible.builtin.command: ansible-galaxy role list -p /usr/share/ansible/roles
       register: ansible_roles_list
       changed_when: false
       when: install_rke2_prerequisites | bool
