@@ -163,6 +163,9 @@ if [ "$EPHEMERAL_ONLY" = false ]; then
         # Extract numeric value from DISK_SIZE (remove 'GB' suffix)
         DISK_SIZE_GB="${DISK_SIZE%GB}"
     fi
+
+    # Calculate disk persistence size in Gi (K8s will not accept size in GB)
+    PV_SIZE=$((DISK_SIZE_GB * 0.93))
 else
     echo "ℹ Using ephemeral storage only (no persistent disk)."
 fi
@@ -188,7 +191,7 @@ GCLOUD_CMD=(
 # Build metadata string
 METADATA="ssh-keys=ubuntu:$SSH_KEY"
 if [ "$EPHEMERAL_ONLY" = false ]; then
-    METADATA="${METADATA},persistent-disk-size=${DISK_SIZE_GB}GB"
+    METADATA="${METADATA},persistent-volume-size=${PV_SIZE}Gi"
 fi
 
 # Add combined metadata

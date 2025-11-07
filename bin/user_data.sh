@@ -37,10 +37,7 @@ runcmd:
     HOST_IP=$(curl -s ifconfig.me)
 
     # Get persistence size from metadata if available
-    PERSISTENT_DISK_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/persistent-disk-size" -H "Metadata-Flavor: Google" 2>/dev/null || echo "20GB")
-    # Remove 'GB' suffix for Ansible variable and deduct 10GB for system use
-    GALAXY_PERSISTENCE_SIZE=$(( ${PERSISTENT_DISK_SIZE%GB} - 10 ))
-
+    PV_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/persistent-volume-size" -H "Metadata-Flavor: Google" 2>/dev/null || echo "20Gi")
 
     mkdir -p /tmp/ansible-inventory
     cat > /tmp/ansible-inventory/localhost << EOF
@@ -52,8 +49,8 @@ runcmd:
     rke2_token="defaultSecret12345"
     rke2_additional_sans=["${HOST_IP}"]
     rke2_debug=true
-    nfs_size="${PERSISTENT_DISK_SIZE}"
-    galaxy_persistence_size="${GALAXY_PERSISTENCE_SIZE}GB"
+    nfs_size="${PV_SIZE}"
+    galaxy_persistence_size="${PV_SIZE}"
     galaxy_db_password="gxy-db-password"
     galaxy_user="dev@galaxyproject.org"
     EOF
