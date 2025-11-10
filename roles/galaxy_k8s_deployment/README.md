@@ -93,7 +93,7 @@ rke2_debug: false                          # Enable debug mode
 ```yaml
 nfs_version: "1.8.0"                       # Ganesha NFS chart version
 nfs_persistence_storage_class: blockstorage
-nfs_size: "10Gi"                           # NFS backing storage size
+nfs_size: "25Gi"                           # NFS backing storage size
 nfs_default: false                         # Set as default storage class
 nfs_allow_expansion: true
 nfs_reclaim: Delete

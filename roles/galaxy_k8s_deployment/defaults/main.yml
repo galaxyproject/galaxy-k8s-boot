@@ -42,7 +42,7 @@ helm_repositories:
 # NFS Storage Configuration
 nfs_version: "1.8.0"
 nfs_persistence_storage_class: blockstorage
-nfs_size: "10GB"
+nfs_size: "25Gi"
 nfs_default: false
 nfs_allow_expansion: true
 nfs_reclaim: Delete

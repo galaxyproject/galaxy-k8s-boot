@@ -68,7 +68,7 @@ rke2_additional_sans:                     # Additional domain names
   - *.example.com
 
 # NFS Storage
-nfs_size: "20Gi"                          # NFS backing storage size
+nfs_size: "25Gi"                          # NFS backing storage size
 nfs_default: true                         # Make NFS default storage class
 ```
 
