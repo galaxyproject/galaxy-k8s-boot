@@ -78,7 +78,7 @@ gcloud compute instances create ea-mi \
   --project=anvil-and-terra-development \
   --zone=us-east4-b \
   --machine-type=n1-standard-2 \
-  --image=ubuntu-minimal-2404-noble-amd64-v20251020 \
+  --image=ubuntu-minimal-2404-noble-amd64-v20251111 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=100GB \
   --tags=http-server,https-server \
@@ -127,7 +127,7 @@ gcloud compute instances stop ea-mi --zone=us-east4-b
 Create the image, updating the name and source disk as needed:
 
 ```bash
-gcloud compute images create galaxy-k8s-boot-v2025-11-04 \
+gcloud compute images create galaxy-k8s-boot-v2025-11-14 \
   --source-disk=ea-mi \
   --source-disk-zone=us-east4-b \
   --family=galaxy-k8s-boot \

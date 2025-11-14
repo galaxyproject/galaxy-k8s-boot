@@ -49,7 +49,7 @@ Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
 
 - `-k, --ssh-key`: SSH public key for the ubuntu user (required)
 - `-d, --disk-name`: Name of persistent disk (default: galaxy-data-INSTANCE_NAME)
-- `-i, --machine-image`: Machine image name (default: galaxy-k8s-boot-v2025-11-04)
+- `-i, --machine-image`: Machine image name (default: galaxy-k8s-boot-v2025-11-14)
 - `-m, --machine-type`: Machine type (default: e2-standard-4)
 - `-p, --project`: GCP project ID (default: anvil-and-terra-development)
 - `-s, --disk-size`: Size of persistent disk (default: 150GB)
@@ -77,7 +77,7 @@ gcloud compute instances create ea-rke2-c \
   --project=anvil-and-terra-development \
   --zone=us-east4-c \
   --machine-type=e2-standard-4 \
-  --image=galaxy-k8s-boot-v2025-11-04 \
+  --image=galaxy-k8s-boot-v2025-11-14 \
   --image-project=anvil-and-terra-development \
   --boot-disk-size=100GB \
   --boot-disk-type=pd-balanced \

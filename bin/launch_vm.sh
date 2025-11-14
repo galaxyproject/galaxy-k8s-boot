@@ -9,7 +9,7 @@ set -e
 PROJECT="anvil-and-terra-development"
 ZONE="us-east4-c"
 MACHINE_TYPE="e2-standard-4"
-MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-04"
+MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
 BOOT_DISK_SIZE="100GB"
 DISK_SIZE="150GB"
 DISK_TYPE="pd-balanced"
@@ -45,7 +45,7 @@ Examples:
   $0 -k "ssh-rsa AAAAB3..." my-galaxy-vm
 
   # Launch VM with specific machine image
-  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2025-11-04 my-galaxy-vm
+  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2025-11-14 my-galaxy-vm
 
   # Launch VM with specific disk name
   $0 -k "ssh-rsa AAAAB3..." -d galaxy-shared-disk my-galaxy-vm
