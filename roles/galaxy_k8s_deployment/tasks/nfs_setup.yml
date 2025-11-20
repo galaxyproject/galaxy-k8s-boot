@@ -1,0 +1,51 @@
+---
+# NFS Storage Setup Tasks
+- name: Stop conflicting host NFS services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - rpc-statd.service
+    - rpcbind.service
+  ignore_errors: true
+  become: true
+
+- name: Create the NFS namespace
+  kubernetes.core.k8s:
+    kind: Namespace
+    name: nfs-provisioner
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+
+- name: Install the Ganesha NFS Helm repository
+  kubernetes.core.helm_repository:
+    name: nfs-ganesha
+    repo_url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
+    state: present
+
+- name: Helm install Ganesha NFS
+  kubernetes.core.helm:
+    name: nfs-provisioner
+    namespace: nfs-provisioner
+    chart_ref: nfs-ganesha/nfs-server-provisioner
+    chart_version: "{{ nfs_version }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+    values:
+      service:
+        type: LoadBalancer
+      persistence:
+        enabled: true
+        storageClass: "{{ nfs_persistence_storage_class }}"
+        size: "{{ nfs_size }}"
+      storageClass:
+        create: true
+        defaultClass: "{{ nfs_default }}"
+        allowVolumeExpansion: "{{ nfs_allow_expansion }}"
+        reclaimPolicy: "{{ nfs_reclaim }}"
+        mountOptions:
+          - nfsvers=4.2
+          - retrans=2
+          - timeo=30
+          - lock        # Enable NFS locking
+          - hard        # Ensure reliable locking

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The playbook in this repo provides is used to build a VM image for deploying
+The playbook in this repo is used to build a VM image for deploying
 Galaxy. Having a custom image allows for faster deployments and a more
 consistent environment. The playbook is designed to work with Ubuntu. Once
 built, the image can be used to quickly deploy Galaxy instances on Kubernetes
@@ -47,8 +47,8 @@ roles/image_preparation/
 │   ├── helm.yml             # Helm installation
 │   └── cleanup.yml          # Image cleanup
 
-image_prep.yml               # Main playbook for builing the image
-deploy-galaxy.yml            # Deployment playbook using the prepared image
+image_prep.yml               # Main playbook for building the image
+playbook.yml                 # Deployment playbook using the prepared image
 
 inventories/
 └── image_prep.ini.example   # GCP-focused example
@@ -78,9 +78,9 @@ gcloud compute instances create ea-mi \
   --project=anvil-and-terra-development \
   --zone=us-east4-b \
   --machine-type=n1-standard-2 \
-  --image=ubuntu-minimal-2404-noble-amd64-v20250923a \
+  --image=ubuntu-minimal-2404-noble-amd64-v20251111 \
   --image-project=ubuntu-os-cloud \
-  --boot-disk-size=99GB \
+  --boot-disk-size=100GB \
   --tags=http-server,https-server \
   --service-account=ea-dev@anvil-and-terra-development.iam.gserviceaccount.com \
   --scopes=https://www.googleapis.com/auth/cloud-platform \
@@ -89,11 +89,31 @@ gcloud compute instances create ea-mi \
 
 ### 2. Prepare Image
 
-```bash
-# Create/update the inventory file with your instance details
-cp inventories/image_prep.ini.example inventories/image_prep.ini
+#### Customization
 
-# Run the prep playbook
+Override variables in `defaults/main.yml`, your inventory, or on the command
+line with parameters such as:
+
+```bash
+# Different RKE2 version
+-e "rke2_version=v1.34.1+rke2r1"
+
+# Different Helm version
+-e "helm_version=v3.19.0"
+```
+
+---
+
+Once a clean VM is running, create or update your inventory file with the
+instance details:
+
+```bash
+cp inventories/image_prep.ini.example inventories/image_prep.ini
+```
+
+Then run the prep playbook to configure it:
+
+```bash
 ./bin/prepare_image.sh -i inventories/image_prep.ini
 ```
 
@@ -107,30 +127,15 @@ gcloud compute instances stop ea-mi --zone=us-east4-b
 Create the image, updating the name and source disk as needed:
 
 ```bash
-gcloud compute images create galaxy-k8s-boot-v2025-09-26 \
+gcloud compute images create galaxy-k8s-boot-v2025-11-14 \
   --source-disk=ea-mi \
   --source-disk-zone=us-east4-b \
   --family=galaxy-k8s-boot \
   --storage-location=us
 ```
 
-### 4. Deploy Galaxy Cluster
+### 4. Deploy Galaxy
 
-Once the image is created, you can deploy a Galaxy cluster using the prepared
-image. Use the `deploy.yml` to set up the cluster, which has its own
-documentation.
-
-## Customization
-
-Override variables in inventory or command line:
-
-```bash
-# Different RKE2 version
--e "rke2_version=v1.34.1+rke2r1"
-
-# Different Helm version
--e "helm_version=v3.19.0"
-
-# Skip CVMFS if not needed
--e "install_cvmfs=false"
-```
+Once the image is created, you can deploy Galaxy using the prepared image. Use
+the `playbook.yml` to set up the cluster, which has its own documentation in the
+main README in this repo.

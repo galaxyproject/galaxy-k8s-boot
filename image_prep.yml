@@ -44,14 +44,35 @@
       ansible.builtin.import_tasks: roles/image_preparation/tasks/base_packages.yml
       when: install_base_packages | bool
 
+    - name: Copy requirements.yml to remote host
+      ansible.builtin.copy:
+        src: requirements.yml
+        dest: /tmp/galaxy-k8s-boot-requirements.yml
+        mode: '0644'
+      when: install_rke2_prerequisites | bool
+
+    - name: Create system-wide Ansible roles directory
+      ansible.builtin.file:
+        path: /usr/share/ansible/roles
+        state: directory
+        mode: '0755'
+      when: install_rke2_prerequisites | bool
+
+    - name: Install Ansible collections from requirements.yml
+      ansible.builtin.command: ansible-galaxy collection install -r /tmp/galaxy-k8s-boot-requirements.yml
+      changed_when: true
+      when: install_rke2_prerequisites | bool
+
+    - name: Install Ansible roles from requirements.yml to system location
+      ansible.builtin.command: ansible-galaxy role install -r /tmp/galaxy-k8s-boot-requirements.yml -p /usr/share/ansible/roles
+      changed_when: true
+      when: install_rke2_prerequisites | bool
+
   roles:
     - role: galaxyproject.cvmfs
       when: install_cvmfs | bool
 
     - role: image_preparation
-
-    - role: container_prefetch
-      when: prefetch_container_images | bool
 
   post_tasks:
     - name: Verify CVMFS client installed
@@ -139,6 +160,17 @@
         msg: "{{ item.cmd }} -> {{ item.stdout | default(item.stderr) }}"
       loop: "{{ version_checks.results }}"
 
+    - name: Verify Ansible roles are installed in system location
+      ansible.builtin.command: ansible-galaxy role list -p /usr/share/ansible/roles
+      register: ansible_roles_list
+      changed_when: false
+      when: install_rke2_prerequisites | bool
+
+    - name: Display installed Ansible roles
+      ansible.builtin.debug:
+        var: ansible_roles_list.stdout_lines
+      when: install_rke2_prerequisites | bool
+
     - name: Create image preparation completion marker
       ansible.builtin.copy:
         content: |
@@ -149,6 +181,7 @@
           - Helm: {{ helm_version }} with pre-configured repositories (stable, cloudve)
           - CVMFS client with repositories: {{ cvmfs_verify_repos | join(', ') if install_cvmfs else 'NONE' }}
           - Container images: {{ 'Pre-fetched for faster deployment' if prefetch_container_images else 'Not cached' }}
+          - Ansible roles and collections: Installed from requirements.yml
 
           Next steps:
           1. Create image snapshot from this instance

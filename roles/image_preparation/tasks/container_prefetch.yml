@@ -1,0 +1,85 @@
+---
+# Container prefetch tasks - pre-pulls container images for faster runtime deployment
+
+- name: Load container images configuration
+  ansible.builtin.include_vars: "{{ role_path }}/files/container_images.yml"
+
+- name: Check if RKE2 is installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/rke2
+  register: rke2_binary
+  become: true
+
+- name: Start RKE2 server temporarily for image prefetch
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: started
+  become: true
+  when: rke2_binary.stat.exists
+
+- name: Wait for RKE2 containerd socket to be available
+  ansible.builtin.wait_for:
+    path: /run/k3s/containerd/containerd.sock
+    timeout: 120
+  become: true
+  when: rke2_binary.stat.exists
+
+- name: Pre-fetch container images
+  ansible.builtin.command: ctr --address /run/k3s/containerd/containerd.sock -n k8s.io images pull {{ item }}
+  register: pull_result
+  failed_when: false
+  changed_when: pull_result.rc == 0 and 'already exists' not in pull_result.stderr
+  loop: "{{ container_images | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  retries: 3
+  delay: 5
+  become: true
+  when: rke2_binary.stat.exists
+
+- name: List pulled images in RKE2 containerd
+  ansible.builtin.command: ctr --address /run/k3s/containerd/containerd.sock -n k8s.io images list
+  register: pulled_images_list
+  changed_when: false
+  become: true
+  when: rke2_binary.stat.exists
+
+- name: Display pulled images
+  ansible.builtin.debug:
+    msg: |
+      Container images pre-fetch complete in RKE2 containerd!
+
+      {{ pulled_images_list.stdout }}
+  when: rke2_binary.stat.exists
+
+- name: Stop RKE2 server after image prefetch
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: stopped
+  become: true
+  when: rke2_binary.stat.exists
+
+- name: Remove RKE2 server directory to force clean bootstrap
+  ansible.builtin.file:
+    path: /var/lib/rancher/rke2/server
+    state: absent
+  become: true
+  when: rke2_binary.stat.exists
+
+- name: Remove RKE2 agent data except containerd
+  ansible.builtin.shell: |
+    if [ -d /var/lib/rancher/rke2/agent ]; then
+      find /var/lib/rancher/rke2/agent -mindepth 1 -maxdepth 1 ! -name 'containerd' -exec rm -rf {} +
+    fi
+  become: true
+  when: rke2_binary.stat.exists
+
+- name: Clean up CNI and runtime state
+  ansible.builtin.shell: |
+    rm -rf /var/lib/cni || true
+    rm -rf /run/k3s || true
+    rm -rf /var/lib/kubelet || true
+    rm -rf /etc/rancher/rke2 || true
+  become: true
+  when: rke2_binary.stat.exists
+  changed_when: true

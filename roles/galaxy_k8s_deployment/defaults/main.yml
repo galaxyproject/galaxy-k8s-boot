@@ -1,0 +1,74 @@
+---
+# Default variables for galaxy_k8s_deployment role
+
+# Control flags for what components to install
+setup_system: true
+setup_rke2: true
+setup_nfs: true
+setup_storage: true
+setup_ingress: true
+deploy_galaxy: false
+deploy_pulsar: false
+
+# CVMFS Configuration (installed when setup_system is true)
+setup_cvmfs: true
+cvmfs_role: client
+galaxy_cvmfs_repos_enabled: config-repo
+cvmfs_quota_limit: 4000
+cvmfs_http_proxies: ["DIRECT"]
+
+# System Setup
+system_packages:
+  - python3
+  - python3-pip
+  - python3-openshift  # Required by the Ansible Kubernetes module
+  - nfs-common
+
+# RKE2 Configuration
+rke2_token: "default-token-change-me"
+rke2_disable:
+  - rke2-traefik
+  - rke2-ingress-nginx
+rke2_additional_sans: []
+rke2_debug: false
+
+# Helm Configuration
+helm_repositories:
+  - name: stable
+    url: https://charts.helm.sh/stable
+  - name: cloudve
+    url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+
+# NFS Storage Configuration
+nfs_version: "1.8.0"
+nfs_persistence_storage_class: blockstorage
+nfs_size: "25Gi"
+nfs_default: false
+nfs_allow_expansion: true
+nfs_reclaim: Delete
+
+# Kubernetes Storage Configuration
+cluster_hostname: galaxy
+cinder_csi_version: "2.31.2"
+block_storage_disk_path: /mnt/block_storage
+
+# Ingress Configuration
+ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
+
+# Galaxy Application Configuration
+galaxy_chart: cloudve/galaxy
+galaxy_chart_version: "6.6.0"
+galaxy_deps_version: "1.1.1"
+galaxy_values_file: "values/values.yml"
+galaxy_persistence_size: "20Gi"
+galaxy_db_password: "galaxydbpassword"
+galaxy_user: "default-user@galaxyproject.org"
+galaxy_api_key: ""
+galaxy_job_max_cores: 1
+galaxy_job_max_mem: 4
+
+# Pulsar Application Configuration
+pulsar_chart: cloudve/pulsar
+pulsar_chart_version: "0.2.0"
+pulsar_deps_version: "1.1.1"
+pulsar_api_key: ""

@@ -1,6 +1,10 @@
 # This inventory file is automatically generated for single-node RKE2 deployment.
+#
+# Host Group: vm
+#   - Optimized for pre-prepared images with RKE2 prerequisites and Helm
+#   - For bare Ubuntu VMs, add: -e "setup_system=true" to the ansible-playbook command
 
-[k8s_cluster]
+[vm]
 {{ name }} ansible_ssh_host={{ ip }}
 
 [all:vars]
@@ -10,6 +14,7 @@ ansible_ssh_extra_args='-o StrictHostKeyChecking=no'
 ansible_ssh_private_key_file={{ key }}
 ansible_python_interpreter="/usr/bin/python3"
 
+# RKE2 Configuration
 rke2_token='defaultSecret12345'
 rke2_additional_sans=['{{ ip }}']
 rke2_disable=['rke2-traefik', 'rke2-ingress-nginx']

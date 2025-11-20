@@ -1,31 +1,31 @@
-- name: Basic setup of the node
-  import_playbook: setup.yml
+---
+# Unified Galaxy/Pulsar Kubernetes deployment playbook
+# Optimized for pre-prepared images with RKE2 prerequisites and Helm
+#
+# Host Group: vm
+#
+# Usage Examples:
+#   # Deploy Galaxy (default):
+#   ansible-playbook -i inventory playbook.yml
+#
+#   # Deploy Pulsar instead of Galaxy:
+#   ansible-playbook -i inventory playbook.yml -e "application=pulsar"
+#
+#   # Deploy on bare Ubuntu (full setup):
+#   ansible-playbook -i inventory playbook.yml -e "setup_system=true"
 
-- name: Setup RKE2 Kubernetes cluster
-  import_playbook: rke2_setup.yml
-
-- name: Install Helm
-  import_playbook: helm.yml
-
-- name: Install NFS
-  import_playbook: nfs.yml
-
-- name: Configure Ingress
-  import_playbook: ingress.yml
-
-- name: Configure storage
-  import_playbook: storage.yml
-
-- name: Install Galaxy
-  import_playbook: galaxy_app.yml
-  vars:
-    values_file: "values/{{ chart_values_file | default('accp.yml') }}"
-    gxy_admin_users: "{{ galaxy_admin_users | default('') }}"
-    gxy_api_key: "{{ galaxy_api_key }}"
-  when: application == "galaxy"
-
-- name: Install Pulsar
-  import_playbook: pulsar.yml
-  vars:
-    pulsar_api_key: "{{ pulsar_api_key }}"
-  when: application == "pulsar"
+- name: Deploy Galaxy/Pulsar on Kubernetes
+  hosts: vm
+  gather_facts: true
+  become: true
+  roles:
+    - role: galaxy_k8s_deployment
+      vars:
+        setup_system: false    # Skip - already installed in image (includes Helm)
+                               # Set to true via -e for bare Ubuntu VMs
+        setup_rke2: true       # Configure and start RKE2
+        setup_nfs: true
+        setup_storage: true
+        setup_ingress: true
+        deploy_galaxy: "{{ application | default('galaxy') == 'galaxy' }}"
+        deploy_pulsar: "{{ application | default('galaxy') == 'pulsar' }}"
