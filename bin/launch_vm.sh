@@ -13,6 +13,8 @@ MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
 BOOT_DISK_SIZE="100GB"
 DISK_SIZE="150GB"
 DISK_TYPE="pd-balanced"
+GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
+GIT_BRANCH="master"
 
 # Parse command line arguments
 INSTANCE_NAME=""
@@ -37,6 +39,8 @@ Options:
   -s, --disk-size SIZE        Size of persistent disk (default: $DISK_SIZE)
   -k, --ssh-key SSH_KEY       SSH public key for ubuntu user (required)
   -m, --machine-type TYPE     Machine type (default: $MACHINE_TYPE)
+  -g, --git-repo REPO         Git repository URL (default: $GIT_REPO)
+  -b, --git-branch BRANCH     Git branch to deploy (default: $GIT_BRANCH)
   --ephemeral-only            Create VM without persistent disk
   -h, --help                  Show this help message
 
@@ -52,6 +56,9 @@ Examples:
 
   # Create VM without persistent storage (testing only)
   $0 -k "ssh-rsa AAAAB3..." --ephemeral-only my-galaxy-vm
+
+  # Launch VM with custom git repository and branch
+  $0 -k "ssh-rsa AAAAB3..." -g "https://github.com/username/galaxy-k8s-boot.git" -b "feature-branch" my-galaxy-vm
 
 EOF
 }
@@ -85,6 +92,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -m|--machine-type)
             MACHINE_TYPE="$2"
+            shift 2
+            ;;
+        -g|--git-repo)
+            GIT_REPO="$2"
+            shift 2
+            ;;
+        -b|--git-branch)
+            GIT_BRANCH="$2"
             shift 2
             ;;
         --ephemeral-only)
@@ -137,6 +152,8 @@ echo "Project: $PROJECT"
 echo "Zone: $ZONE"
 echo "Machine Type: $MACHINE_TYPE"
 echo "Machine Image: $MACHINE_IMAGE"
+echo "Git Repository: $GIT_REPO"
+echo "Git Branch: $GIT_BRANCH"
 
 if [ "$EPHEMERAL_ONLY" = false ]; then
     echo "Disk Name: $DISK_NAME"
@@ -192,7 +209,7 @@ GCLOUD_CMD=(
 )
 
 # Build metadata string
-METADATA="ssh-keys=ubuntu:$SSH_KEY"
+METADATA="ssh-keys=ubuntu:$SSH_KEY,git-repo=${GIT_REPO},git-branch=${GIT_BRANCH}"
 if [ "$EPHEMERAL_ONLY" = false ]; then
     METADATA="${METADATA},persistent-volume-size=${PV_SIZE}Gi"
 fi
