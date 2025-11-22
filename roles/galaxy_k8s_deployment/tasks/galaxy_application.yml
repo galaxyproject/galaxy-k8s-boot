@@ -28,11 +28,30 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
-- name: Copy the values file to the remote host
+# Prepare values files list with backward compatibility
+- name: Prepare Galaxy values files list
+  set_fact:
+    _galaxy_values_files: >-
+      {%- if galaxy_values_file is defined and galaxy_values_file != "" -%}
+        {{ [galaxy_values_file] }}
+      {%- elif galaxy_values_files is defined and galaxy_values_files | length > 0 -%}
+        {{ galaxy_values_files }}
+      {%- else -%}
+        {{ ['values/values.yml'] }}
+      {%- endif -%}
+
+- name: Display Galaxy values files being used
+  debug:
+    msg: "Using Galaxy Helm values files: {{ _galaxy_values_files }}"
+
+- name: Copy Galaxy values files to the remote host
   ansible.builtin.copy:
-    src: "{{ galaxy_values_file }}"
-    dest: /tmp/values.yml
+    src: "{{ item }}"
+    dest: "/tmp/galaxy_values_{{ idx }}.yml"
     mode: '0644'
+  loop: "{{ _galaxy_values_files }}"
+  loop_control:
+    index_var: idx
 
 - name: Helm install Galaxy
   kubernetes.core.helm:
@@ -42,8 +61,7 @@
     chart_version: "{{ galaxy_chart_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
     update_repo_cache: true
-    values_files:
-      - /tmp/values.yml
+    values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
     values:
       persistence:
         size: "{{ galaxy_persistence_size }}"
