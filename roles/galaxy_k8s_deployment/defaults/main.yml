@@ -59,13 +59,33 @@ ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=rea
 galaxy_chart: cloudve/galaxy
 galaxy_chart_version: "6.6.0"
 galaxy_deps_version: "1.1.1"
-galaxy_values_file: "values/values.yml"
+
+# Galaxy Helm values files configuration
+# Supports both single file (string, deprecated) and multiple files (list)
+# Examples:
+#   galaxy_values_file: "values/values.yml"  # Single file (backward compatible)
+#   galaxy_values_files: ["values/values.yml", "values/custom.yml"]  # Multiple files
+galaxy_values_file: ""  # Deprecated - use galaxy_values_files instead
+galaxy_values_files:
+  - "values/values.yml"
+
 galaxy_persistence_size: "20Gi"
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
 galaxy_api_key: ""
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4
+
+# GCP Batch Configuration
+# Set enable_gcp_batch=true to configure Galaxy for GCP Batch job runner
+# This will:
+#   - Detect and configure NFS LoadBalancer IP
+#   - Auto-detect NFS export path for Galaxy PVC
+#   - Update job_conf.yml with GCP Batch runner configuration
+#   - Restart Galaxy deployments to apply changes
+enable_gcp_batch: false
+gcp_batch_service_account_email: ""
+gcp_batch_region: "us-east4"
 
 # Pulsar Application Configuration
 pulsar_chart: cloudve/pulsar
