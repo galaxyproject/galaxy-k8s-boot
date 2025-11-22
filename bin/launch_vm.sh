@@ -161,8 +161,9 @@ if [ ${#GALAXY_VALUES_FILES[@]} -eq 0 ]; then
     GALAXY_VALUES_FILES=("values/values.yml")
 fi
 
-# Convert values files array to comma-separated string for metadata
-GALAXY_VALUES_FILES_CSV=$(IFS=,; echo "${GALAXY_VALUES_FILES[*]}")
+# Convert values files array to semicolon-separated string for metadata
+# (semicolon is used instead of comma to avoid conflicts with gcloud metadata format)
+GALAXY_VALUES_FILES_LIST=$(IFS=';'; echo "${GALAXY_VALUES_FILES[*]}")
 
 echo "=== Galaxy Kubernetes Boot VM Launch ==="
 echo "Instance Name: $INSTANCE_NAME"
@@ -228,7 +229,7 @@ GCLOUD_CMD=(
 )
 
 # Build metadata string
-METADATA="ssh-keys=ubuntu:$SSH_KEY,galaxy-chart-version=${GALAXY_CHART_VERSION},galaxy-deps-version=${GALAXY_DEPS_VERSION},galaxy-values-files=${GALAXY_VALUES_FILES_CSV}"
+METADATA="ssh-keys=ubuntu:$SSH_KEY,galaxy-chart-version=${GALAXY_CHART_VERSION},galaxy-deps-version=${GALAXY_DEPS_VERSION},galaxy-values-files=${GALAXY_VALUES_FILES_LIST}"
 if [ "$EPHEMERAL_ONLY" = false ]; then
     METADATA="${METADATA},persistent-volume-size=${PV_SIZE}Gi"
 fi
