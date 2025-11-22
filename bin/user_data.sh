@@ -36,8 +36,14 @@ runcmd:
     export HOME=/home/ubuntu
     HOST_IP=$(curl -s ifconfig.me)
 
-    # Get persistence size from metadata if available
+    # Get configuration from metadata with fallback defaults
     PV_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/persistent-volume-size" -H "Metadata-Flavor: Google" 2>/dev/null || echo "20Gi")
+    GALAXY_CHART_VERSION=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-chart-version" -H "Metadata-Flavor: Google" 2>/dev/null || echo "6.6.0")
+    GALAXY_DEPS_VERSION=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-deps-version" -H "Metadata-Flavor: Google" 2>/dev/null || echo "1.1.1")
+    GALAXY_VALUES_FILES_CSV=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-values-files" -H "Metadata-Flavor: Google" 2>/dev/null || echo "values/values.yml")
+
+    # Convert comma-separated values files to JSON array for Ansible
+    GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_CSV" | awk -F, '"'"'{printf "["; for(i=1; i<=NF; i++) {if(i>1) printf ","; printf "\"%s\"", $i} printf "]"}'"'"')
 
     mkdir -p /tmp/ansible-inventory
     cat > /tmp/ansible-inventory/localhost << EOF
@@ -55,10 +61,13 @@ runcmd:
     galaxy_user="dev@galaxyproject.org"
     EOF
 
-    echo "[`date`] - NFS storage size for Galaxy: ${PERSISTENT_DISK_SIZE}"
+    echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
+    echo "[`date`] - Galaxy Chart Version: ${GALAXY_CHART_VERSION}"
+    echo "[`date`] - Galaxy Deps Version: ${GALAXY_DEPS_VERSION}"
+    echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_CSV}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U https://github.com/galaxyproject/galaxy-k8s-boot.git -C master -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 playbook.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U https://github.com/galaxyproject/galaxy-k8s-boot.git -C master -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "galaxy_chart_version=${GALAXY_CHART_VERSION}" --extra-vars "galaxy_deps_version=${GALAXY_DEPS_VERSION}" --extra-vars "galaxy_values_files=${GALAXY_VALUES_FILES_JSON}" playbook.yml
 
     echo "[`date`] - User data script completed."
     '
