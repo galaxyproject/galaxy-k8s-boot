@@ -49,3 +49,24 @@
           - timeo=30
           - lock        # Enable NFS locking
           - hard        # Ensure reliable locking
+
+# ============================================================================
+# GCP Batch: Configure NFS LoadBalancer for internal access
+# ============================================================================
+- name: Patch NFS service for GCP Batch (internal LoadBalancer with source IP restrictions)
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: nfs-provisioner-nfs-server-provisioner
+        namespace: nfs-provisioner
+        annotations:
+          networking.gke.io/load-balancer-type: "Internal"
+      spec:
+        type: LoadBalancer
+        loadBalancerSourceRanges:
+          - "10.0.0.0/8"  # Restrict to internal GCP networks
+  when: enable_gcp_batch | default(false) | bool
