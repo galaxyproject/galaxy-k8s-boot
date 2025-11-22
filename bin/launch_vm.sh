@@ -228,14 +228,14 @@ GCLOUD_CMD=(
     --metadata-from-file=user-data=bin/user_data.sh
 )
 
-# Build metadata string
-METADATA="ssh-keys=ubuntu:$SSH_KEY,galaxy-chart-version=${GALAXY_CHART_VERSION},galaxy-deps-version=${GALAXY_DEPS_VERSION},galaxy-values-files=${GALAXY_VALUES_FILES_LIST}"
+# Add metadata using separate flags to avoid parsing issues with special characters
+GCLOUD_CMD+=(--metadata ssh-keys="ubuntu:$SSH_KEY")
+GCLOUD_CMD+=(--metadata galaxy-chart-version="${GALAXY_CHART_VERSION}")
+GCLOUD_CMD+=(--metadata galaxy-deps-version="${GALAXY_DEPS_VERSION}")
+GCLOUD_CMD+=(--metadata galaxy-values-files="${GALAXY_VALUES_FILES_LIST}")
 if [ "$EPHEMERAL_ONLY" = false ]; then
-    METADATA="${METADATA},persistent-volume-size=${PV_SIZE}Gi"
+    GCLOUD_CMD+=(--metadata persistent-volume-size="${PV_SIZE}Gi")
 fi
-
-# Add combined metadata
-GCLOUD_CMD+=(--metadata="$METADATA")
 
 # Add disk flag if not ephemeral only
 if [ "$EPHEMERAL_ONLY" = false ]; then
