@@ -43,7 +43,7 @@ runcmd:
     GALAXY_VALUES_FILES_LIST=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-values-files" -H "Metadata-Flavor: Google" 2>/dev/null || echo "values/values.yml")
 
     # Convert semicolon-separated values files to JSON array for Ansible
-    GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_LIST" | awk -F';' '"'"'{printf "["; for(i=1; i<=NF; i++) {if(i>1) printf ","; printf "\"%s\"", $i} printf "]"}'"'"')
+    GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_LIST" | sed -e 's/;/","/g' -e 's/^/["/' -e 's/$/"]/')
 
     mkdir -p /tmp/ansible-inventory
     cat > /tmp/ansible-inventory/localhost << EOF
