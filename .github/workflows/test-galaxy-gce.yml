@@ -1,0 +1,190 @@
+name: Test Galaxy Deployment on GCE
+
+on:
+  workflow_dispatch:
+    inputs:
+      galaxy-chart-version:
+        description: 'Galaxy Helm chart version'
+        default: '6.6.0'
+        required: true
+      git-repo:
+        description: 'Git repository URL for galaxy-k8s-boot'
+        default: 'https://github.com/galaxyproject/galaxy-k8s-boot.git'
+        required: true
+      git-branch:
+        description: 'Git branch to deploy'
+        default: 'master'
+        required: true
+      instance-name:
+        description: 'Name for the test VM instance'
+        default: 'galaxy-test-ci'
+        required: true
+      gcp-project:
+        description: 'GCP project ID'
+        default: 'anvil-and-terra-development'
+        required: true
+      gcp-zone:
+        description: 'GCP zone'
+        default: 'us-east4-c'
+        required: true
+
+env:
+  INSTANCE_NAME: ${{ inputs.instance-name }}
+  GCP_PROJECT: ${{ inputs.gcp-project }}
+  GCP_ZONE: ${{ inputs.gcp-zone }}
+
+jobs:
+  test-galaxy:
+    name: Deploy and Test Galaxy
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Generate SSH key for VM
+        id: ssh-key
+        run: |
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/galaxy-ci-key -N "" -C "github-actions"
+          echo "public-key=$(cat ~/.ssh/galaxy-ci-key.pub)" >> $GITHUB_OUTPUT
+          echo "private-key-path=$HOME/.ssh/galaxy-ci-key" >> $GITHUB_OUTPUT
+
+      - name: Launch Galaxy VM
+        id: launch-vm
+        run: |
+          bin/launch_vm.sh \
+            --project "${{ env.GCP_PROJECT }}" \
+            --zone "${{ env.GCP_ZONE }}" \
+            --galaxy-chart-version "${{ inputs.galaxy-chart-version }}" \
+            --git-repo "${{ inputs.git-repo }}" \
+            --git-branch "${{ inputs.git-branch }}" \
+            -k "${{ steps.ssh-key.outputs.public-key }}" \
+            -f values/values.yml \
+            "${{ env.INSTANCE_NAME }}"
+
+      - name: Get VM IP address
+        id: vm-ip
+        run: |
+          sleep 10  # Give VM time to fully initialize
+          VM_IP=$(gcloud compute instances describe "${{ env.INSTANCE_NAME }}" \
+            --project="${{ env.GCP_PROJECT }}" \
+            --zone="${{ env.GCP_ZONE }}" \
+            --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+          echo "ip=${VM_IP}" >> $GITHUB_OUTPUT
+          echo "Galaxy VM IP: ${VM_IP}"
+
+      - name: Wait for cloud-init to complete
+        run: |
+          echo "Waiting for cloud-init to complete on ${{ steps.vm-ip.outputs.ip }}..."
+          for i in {1..60}; do
+            if gcloud compute ssh "${{ env.INSTANCE_NAME }}" \
+              --project="${{ env.GCP_PROJECT }}" \
+              --zone="${{ env.GCP_ZONE }}" \
+              --ssh-key-file="${{ steps.ssh-key.outputs.private-key-path }}" \
+              --command="cloud-init status --wait" 2>/dev/null; then
+              echo "Cloud-init completed successfully"
+              break
+            fi
+            echo "Attempt $i/60: Cloud-init still running or SSH not ready..."
+            sleep 30
+          done
+
+      - name: Copy kubeconfig from VM
+        run: |
+          mkdir -p ~/.kube
+          gcloud compute scp \
+            --project="${{ env.GCP_PROJECT }}" \
+            --zone="${{ env.GCP_ZONE }}" \
+            --ssh-key-file="${{ steps.ssh-key.outputs.private-key-path }}" \
+            "ubuntu@${{ env.INSTANCE_NAME }}:/home/ubuntu/.kube/config" \
+            ~/.kube/config
+
+          # Update kubeconfig to use external IP
+          sed -i "s|https://0.0.0.0:6443|https://${{ steps.vm-ip.outputs.ip }}:6443|" ~/.kube/config
+
+      - name: Wait for Galaxy deployments to rollout
+        run: |
+          echo "Waiting for Galaxy deployments to complete (timeout: 15 minutes)..."
+
+          # Get all deployments in the galaxy namespace
+          DEPLOYMENTS=$(kubectl get deployments -n galaxy -o jsonpath='{.items[*].metadata.name}')
+
+          if [ -z "$DEPLOYMENTS" ]; then
+            echo "No deployments found in galaxy namespace"
+            exit 1
+          fi
+
+          echo "Found deployments: $DEPLOYMENTS"
+
+          # Wait for each deployment to rollout
+          for deployment in $DEPLOYMENTS; do
+            echo "Waiting for deployment: $deployment"
+            kubectl rollout status deployment/$deployment -n galaxy --timeout=15m
+          done
+
+          echo "All deployments rolled out successfully"
+
+      - name: Test Galaxy API endpoint
+        id: test-api
+        run: |
+          GALAXY_URL="http://${{ steps.vm-ip.outputs.ip }}/api/version"
+          echo "Testing Galaxy API at: $GALAXY_URL"
+
+          # Wait for Galaxy to be responsive (max 5 minutes)
+          for i in {1..30}; do
+            if response=$(curl -s -f "$GALAXY_URL"); then
+              echo "Galaxy API is responsive"
+              echo "$response" | jq .
+
+              # Validate that response is valid JSON
+              if echo "$response" | jq -e . >/dev/null 2>&1; then
+                echo "Response is valid JSON ✓"
+                echo "version-info=$response" >> $GITHUB_OUTPUT
+                exit 0
+              else
+                echo "Response is not valid JSON"
+                exit 1
+              fi
+            fi
+            echo "Attempt $i/30: Galaxy not ready yet..."
+            sleep 10
+          done
+
+          echo "Galaxy API did not become responsive in time"
+          exit 1
+
+      - name: Cleanup - Delete VM
+        if: always()
+        run: |
+          echo "Cleaning up: Deleting VM ${{ env.INSTANCE_NAME }}"
+          gcloud compute instances delete "${{ env.INSTANCE_NAME }}" \
+            --project="${{ env.GCP_PROJECT }}" \
+            --zone="${{ env.GCP_ZONE }}" \
+            --quiet || echo "Failed to delete VM (may not exist)"
+
+      - name: Display test results
+        if: always()
+        run: |
+          echo "=== Test Results ==="
+          echo "Instance: ${{ env.INSTANCE_NAME }}"
+          echo "IP: ${{ steps.vm-ip.outputs.ip }}"
+          echo "Galaxy Chart Version: ${{ inputs.galaxy-chart-version }}"
+          echo "Git Repo: ${{ inputs.git-repo }}"
+          echo "Git Branch: ${{ inputs.git-branch }}"
+          if [ -n "${{ steps.test-api.outputs.version-info }}" ]; then
+            echo "Galaxy Version Info:"
+            echo "${{ steps.test-api.outputs.version-info }}" | jq .
+          fi
