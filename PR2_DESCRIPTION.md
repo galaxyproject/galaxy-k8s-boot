@@ -118,18 +118,33 @@ Added comprehensive "Advanced Configuration" section to README.md with:
 
 ## Troubleshooting and Fixes
 
-During testing, two issues were identified and resolved:
+During testing, several issues were identified and resolved:
 
 ### Issue #1: GCloud Metadata Delimiter Conflict
 **Problem**: Using comma-separated values files conflicted with gcloud's metadata format
 **Error**: `ERROR: (gcloud.compute.instances.create) argument --metadata: Bad syntax for dict arg`
-**Solution**: Changed delimiter from comma to semicolon in values files list (launch_vm.sh:181, user_data.sh:46)
+**Initial Solution**: Changed delimiter from comma to semicolon
 
 ### Issue #2: Cloud-init Quoting Issue
 **Problem**: Complex awk quoting with nested quotes broke inside cloud-init's bash -c command
 **Error**: `bash: -c: line 15: unexpected EOF while looking for matching ')'`
-**Solution**: Replaced awk with simpler sed command for JSON array conversion (user_data.sh:46)
+**Solution**: Replaced awk with simpler sed command for JSON array conversion
 
-### Issue #3: GCloud Metadata Special Characters
-**Problem**: Semicolons and slashes in values file paths caused gcloud metadata parsing errors
-**Solution**: Use individual `--metadata` flags instead of one concatenated string (launch_vm.sh:231-238)
+### Issue #3: GCloud Metadata Multiple Parameters Error
+**Problem**: GCloud doesn't support multiple `--metadata` flags
+**Error**: `ERROR: (gcloud.compute.instances.create) argument --metadata: "metadata" argument cannot be specified multiple times`
+**Final Solution**: Generate custom user_data.sh with values baked in instead of passing through metadata
+
+### Issue #4: Ansible JSON Array Parsing
+**Problem**: Values files were passed as string instead of JSON array to Ansible
+**Error**: `Invalid data passed to 'loop', it requires a list, got this instead: [values/values.yml,...]`
+**Solution**: Use proper JSON object format for entire `--extra-vars` parameter
+
+## Final Implementation
+
+The final solution generates a temporary user_data.sh script with all configuration values directly substituted:
+- Avoids all metadata parameter passing complexity
+- Eliminates special character escaping issues
+- Makes the solution more portable across cloud providers
+- Simplifies debugging (can inspect the generated script)
+- Properly formats extra-vars as JSON object for Ansible
