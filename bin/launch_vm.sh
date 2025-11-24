@@ -116,6 +116,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -f|--values)
             GALAXY_VALUES_FILES+=("$2")
+            ;;
         -g|--git-repo)
             GIT_REPO="$2"
             shift 2
