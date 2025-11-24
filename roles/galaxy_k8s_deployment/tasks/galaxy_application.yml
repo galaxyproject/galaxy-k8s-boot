@@ -28,6 +28,49 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
+# ============================================================================
+# GCP Batch: NFS LoadBalancer IP Detection
+# ============================================================================
+- name: Wait for NFS LoadBalancer to be assigned
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: nfs-provisioner-nfs-server-provisioner
+    namespace: nfs-provisioner
+    kubeconfig: "{{ kubeconfig_path }}"
+    wait: true
+    wait_condition:
+      type: status.loadBalancer.ingress
+    wait_timeout: 300
+  register: nfs_service_info
+  retries: 10
+  delay: 10
+  until:
+    - nfs_service_info.resources | length > 0
+    - nfs_service_info.resources[0].status.loadBalancer is defined
+    - nfs_service_info.resources[0].status.loadBalancer.ingress is defined
+    - nfs_service_info.resources[0].status.loadBalancer.ingress | length > 0
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Set NFS server IP from LoadBalancer for GCP Batch VPC access
+  set_fact:
+    nfs_server: "{{ nfs_service_info.resources[0].status.loadBalancer.ingress[0].ip }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_service_info.resources | length > 0
+
+- name: Fail if NFS service not found
+  fail:
+    msg: "NFS service not found. Make sure NFS setup completed successfully."
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_service_info.resources | length == 0
+
+- name: Display NFS server access method
+  debug:
+    msg: "Using NFS LoadBalancer IP: {{ nfs_server }} (accessible from GCP Batch VMs)"
+  when: enable_gcp_batch | default(false) | bool
+
 # Prepare values files list with backward compatibility
 - name: Prepare Galaxy values files list
   set_fact:
@@ -62,7 +105,9 @@
     kubeconfig: "{{ kubeconfig_path }}"
     update_repo_cache: true
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values:
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) }}"
+  vars:
+    _helm_values_base:
       persistence:
         size: "{{ galaxy_persistence_size }}"
       postgresql:
@@ -80,3 +125,101 @@
               k8s:
                 max_cores: "{{ galaxy_job_max_cores }}"
                 max_mem: "{{ galaxy_job_max_mem }}"
+    _helm_values_gcp_batch:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              nfs_server: "{{ nfs_server }}"
+
+# ============================================================================
+# GCP Batch: NFS Export Path Detection
+# ============================================================================
+- name: Wait for Galaxy PVC to be created
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: galaxy-galaxy-pvc
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+    wait: true
+    wait_condition:
+      type: Bound
+      status: "True"
+    wait_timeout: 300
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Detect NFS export path for Galaxy PVC
+  shell: |
+    # Wait a moment for NFS export to be available
+    sleep 10
+
+    # Get NFS exports and find the PVC export path
+    showmount -e {{ nfs_server }} | grep '/export/pvc-' | head -1 | awk '{print $1}'
+  register: nfs_export_detection
+  retries: 10
+  delay: 5
+  until: nfs_export_detection.stdout != ""
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Set NFS export path for Galaxy database
+  set_fact:
+    nfs_export_path: "{{ nfs_export_detection.stdout }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_detection.stdout is defined
+    - nfs_export_detection.stdout != ""
+
+- name: Display detected NFS export path
+  debug:
+    msg: "Detected NFS export path for Galaxy PVC: {{ nfs_export_path }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+- name: Fail if NFS export path not detected
+  fail:
+    msg: "Could not detect NFS export path for Galaxy PVC. Available exports: {{ nfs_export_detection.stdout_lines | default('none') }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is not defined or nfs_export_path == ""
+
+# ============================================================================
+# GCP Batch: Update Configuration and Restart
+# ============================================================================
+- name: Get current job_conf.yml from ConfigMap
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: galaxy-configs
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: galaxy_configs
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Update job_conf.yml with NFS export path
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-configs
+        namespace: galaxy
+      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'nfs_path': nfs_export_path}}}, recursive=True) | to_nice_yaml) }) }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+- name: Restart Galaxy deployments to pick up configuration changes
+  shell: kubectl rollout restart deployment {{ item }} -n galaxy
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  loop:
+    - galaxy-web
+    - galaxy-workflow
+    - galaxy-job-0
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined

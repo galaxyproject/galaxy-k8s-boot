@@ -159,6 +159,76 @@ sudo tail -n +1 -f /var/log/cloud-init-output.log
 sudo journalctl -f -u cloud-final
 ```
 
+### GCP Batch Job Runner
+
+The Galaxy deployment can be configured to use Google Cloud Batch for job execution, allowing Galaxy to scale job processing independently of the Kubernetes cluster.
+
+#### Prerequisites
+
+1. **GCP Service Account**: Create a service account with appropriate permissions:
+   ```bash
+   gcloud iam service-accounts create galaxy-batch-runner \
+     --project=YOUR_PROJECT_ID
+
+   # Grant required permissions
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/batch.jobsEditor"
+
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/iam.serviceAccountUser"
+   ```
+
+2. **Firewall Rules**: Ensure GCP Batch VMs can access the NFS server:
+   ```bash
+   gcloud compute firewall-rules create allow-nfs-for-batch \
+     --project=YOUR_PROJECT_ID \
+     --direction=INGRESS \
+     --priority=1000 \
+     --network=default \
+     --action=ALLOW \
+     --rules=tcp:2049,udp:2049,tcp:111,udp:111 \
+     --source-ranges=10.0.0.0/8 \
+     --target-tags=k8s
+   ```
+
+3. **Kubernetes Secret**: Create a secret with the service account key:
+   ```bash
+   kubectl create secret generic gcp-batch-key \
+     --from-file=key.json=/path/to/service-account-key.json \
+     --namespace galaxy
+   ```
+
+#### Deployment
+
+Deploy Galaxy with GCP Batch enabled:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "enable_gcp_batch=true" \
+  --extra-vars "gcp_batch_service_account_email=galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --extra-vars "gcp_batch_region=us-east4"
+```
+
+Or combine with multiple values files:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  -e enable_gcp_batch=true \
+  -e gcp_batch_service_account_email=galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+  -e galaxy_values_files='["values/values.yml","values/gcp-batch.yml"]'
+```
+
+#### What Gets Configured Automatically
+
+When `enable_gcp_batch=true`, the playbook automatically:
+- **Detects NFS LoadBalancer IP**: Configures internal LoadBalancer for NFS with source IP restrictions
+- **Detects NFS Export Path**: Automatically finds the Galaxy PVC export path using `showmount`
+- **Updates job_conf.yml**: Injects NFS server IP and export path into GCP Batch runner configuration
+- **Restarts Deployments**: Applies configuration changes by restarting Galaxy pods
+
+No manual intervention required for NFS path detection or configuration updates.
 ## Advanced Configuration
 
 ### Using Multiple Helm Values Files
