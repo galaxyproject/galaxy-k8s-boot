@@ -6,24 +6,24 @@
 set -e
 
 # Default values
-PROJECT="anvil-and-terra-development"
-ZONE="us-east4-c"
-MACHINE_TYPE="e2-standard-4"
-MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
 BOOT_DISK_SIZE="100GB"
 DISK_SIZE="150GB"
 DISK_TYPE="pd-balanced"
 GALAXY_CHART_VERSION="6.6.0"
 GALAXY_DEPS_VERSION="1.1.1"
-GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
 GIT_BRANCH="master"
+GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
+MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
+MACHINE_TYPE="e2-standard-4"
+PROJECT="anvil-and-terra-development"
+ZONE="us-east4-c"
 
 # Parse command line arguments
-INSTANCE_NAME=""
 DISK_NAME=""
-SSH_KEY=""
 EPHEMERAL_ONLY=false
 GALAXY_VALUES_FILES=()  # Array to hold multiple values files
+INSTANCE_NAME=""
+SSH_KEY=""
 
 usage() {
     cat << EOF
@@ -35,20 +35,20 @@ Required Arguments:
   INSTANCE_NAME       Name of the VM instance to create
 
 Options:
-  -p, --project PROJECT        GCP project ID (default: $PROJECT)
-  -z, --zone ZONE             GCP zone (default: $ZONE)
-  -i, --machine-image IMAGE   Machine image name (default: $MACHINE_IMAGE)
-  -d, --disk-name DISK_NAME   Name of persistent disk (default: galaxy-data-INSTANCE_NAME)
-  -s, --disk-size SIZE        Size of persistent disk (default: $DISK_SIZE)
+  -b, --git-branch BRANCH           Git branch to deploy (default: $GIT_BRANCH)
+  -d, --disk-name DISK_NAME         Name of persistent disk (default: galaxy-data-INSTANCE_NAME)
+  -e, --ephemeral-only              Create VM without persistent disk
+  -f, --values FILE                 Helm values file (can be specified multiple times, default: values/values.yml)
+  -i, --machine-image IMAGE         Machine image name (default: $MACHINE_IMAGE)
   -k, --ssh-key SSH_KEY             SSH public key for ubuntu user (required)
   -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
+  -p, --project PROJECT             GCP project ID (default: $PROJECT)
+  -r, --git-repo REPO               Git repository URL (default: $GIT_REPO)
+  -s, --disk-size SIZE              Size of persistent disk (default: $DISK_SIZE)
+  -z, --zone ZONE                   GCP zone (default: $ZONE)
   --galaxy-chart-version VERSION    Galaxy Helm chart version (default: $GALAXY_CHART_VERSION)
   --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
-  -g, --git-repo REPO         Git repository URL (default: $GIT_REPO)
-  -b, --git-branch BRANCH     Git branch to deploy (default: $GIT_BRANCH)
-  -f, --values FILE                 Helm values file (can be specified multiple times, default: values/values.yml)
-  --ephemeral-only            Create VM without persistent disk
-  -h, --help                  Show this help message
+  -h, --help, help                  Show this help message
 
 Examples:
   # Launch VM with new or existing disk
@@ -78,24 +78,24 @@ EOF
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -p|--project)
-            PROJECT="$2"
-            shift 2
-            ;;
-        -z|--zone)
-            ZONE="$2"
-            shift 2
-            ;;
-        -i|--machine-image)
-            MACHINE_IMAGE="$2"
+        -b|--git-branch)
+            GIT_BRANCH="$2"
             shift 2
             ;;
         -d|--disk-name)
             DISK_NAME="$2"
             shift 2
             ;;
-        -s|--disk-size)
-            DISK_SIZE="$2"
+        -e|--ephemeral-only)
+            EPHEMERAL_ONLY=true
+            shift
+            ;;
+        -f|--values)
+            GALAXY_VALUES_FILES+=("$2")
+            shift 2
+            ;;
+        -i|--machine-image)
+            MACHINE_IMAGE="$2"
             shift 2
             ;;
         -k|--ssh-key)
@@ -106,6 +106,22 @@ while [[ $# -gt 0 ]]; do
             MACHINE_TYPE="$2"
             shift 2
             ;;
+        -p|--project)
+            PROJECT="$2"
+            shift 2
+            ;;
+        -r|--git-repo)
+            GIT_REPO="$2"
+            shift 2
+            ;;
+        -s|--disk-size)
+            DISK_SIZE="$2"
+            shift 2
+            ;;
+        -z|--zone)
+            ZONE="$2"
+            shift 2
+            ;;
         --galaxy-chart-version)
             GALAXY_CHART_VERSION="$2"
             shift 2
@@ -114,22 +130,7 @@ while [[ $# -gt 0 ]]; do
             GALAXY_DEPS_VERSION="$2"
             shift 2
             ;;
-        -f|--values)
-            GALAXY_VALUES_FILES+=("$2")
-            ;;
-        -g|--git-repo)
-            GIT_REPO="$2"
-            shift 2
-            ;;
-        -b|--git-branch)
-            GIT_BRANCH="$2"
-            shift 2
-            ;;
-        --ephemeral-only)
-            EPHEMERAL_ONLY=true
-            shift
-            ;;
-        -h|--help)
+        -h|--help|help)
             usage
             exit 0
             ;;
@@ -174,6 +175,7 @@ if [ ${#GALAXY_VALUES_FILES[@]} -eq 0 ]; then
     GALAXY_VALUES_FILES=("values/values.yml")
 fi
 
+echo "Converting values file array"
 # Convert values files array to semicolon-separated string for metadata
 # (semicolon is used instead of comma to avoid conflicts with gcloud metadata format)
 GALAXY_VALUES_FILES_LIST=$(IFS=';'; echo "${GALAXY_VALUES_FILES[*]}")
@@ -229,6 +231,16 @@ fi
 TEMP_USER_DATA=$(mktemp /tmp/user_data.XXXXXX.sh)
 trap "rm -f $TEMP_USER_DATA" EXIT
 
+# Add the configuration values directly into the script
+if [ "$EPHEMERAL_ONLY" = false ]; then
+    PV_SIZE_VALUE="${PV_SIZE}Gi"
+else
+    PV_SIZE_VALUE="20Gi"
+fi
+
+# Convert values files list to JSON array
+GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_LIST" | sed -e 's/;/","/g' -e 's/^/["/' -e 's/$/"]/')
+
 cat > "$TEMP_USER_DATA" << 'EOF'
 #cloud-config
 runcmd:
@@ -269,16 +281,6 @@ runcmd:
     HOST_IP=$(curl -s ifconfig.me)
 
 EOF
-
-# Add the configuration values directly into the script
-if [ "$EPHEMERAL_ONLY" = false ]; then
-    PV_SIZE_VALUE="${PV_SIZE}Gi"
-else
-    PV_SIZE_VALUE="20Gi"
-fi
-
-# Convert values files list to JSON array
-GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_LIST" | sed -e 's/;/","/g' -e 's/^/["/' -e 's/$/"]/')
 
 cat >> "$TEMP_USER_DATA" << EOF
     # Configuration from launch_vm.sh
@@ -343,15 +345,6 @@ GCLOUD_CMD=(
     --metadata-from-file=user-data="$TEMP_USER_DATA"
     --metadata=ssh-keys="ubuntu:$SSH_KEY"
 )
-
-# Build metadata string
-METADATA="ssh-keys=ubuntu:$SSH_KEY,git-repo=${GIT_REPO},git-branch=${GIT_BRANCH}"
-if [ "$EPHEMERAL_ONLY" = false ]; then
-    METADATA="${METADATA},persistent-volume-size=${PV_SIZE}Gi"
-fi
-
-# Add combined metadata
-GCLOUD_CMD+=(--metadata="$METADATA")
 
 # Add disk flag if not ephemeral only
 if [ "$EPHEMERAL_ONLY" = false ]; then
