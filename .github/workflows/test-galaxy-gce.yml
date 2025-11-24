@@ -68,6 +68,7 @@ jobs:
           bin/launch_vm.sh \
             --project "${{ env.GCP_PROJECT }}" \
             --zone "${{ env.GCP_ZONE }}" \
+            --ephemeral-only \
             --galaxy-chart-version "${{ inputs.galaxy-chart-version }}" \
             --git-repo "${{ inputs.git-repo }}" \
             --git-branch "${{ inputs.git-branch }}" \
