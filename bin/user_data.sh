@@ -36,8 +36,10 @@ runcmd:
     export HOME=/home/ubuntu
     HOST_IP=$(curl -s ifconfig.me)
 
-    # Get persistence size from metadata if available
+    # Get configuration from metadata with fallback defaults
     PV_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/persistent-volume-size" -H "Metadata-Flavor: Google" 2>/dev/null || echo "20Gi")
+    GIT_REPO=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-repo" -H "Metadata-Flavor: Google" 2>/dev/null || echo "https://github.com/galaxyproject/galaxy-k8s-boot.git")
+    GIT_BRANCH=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-branch" -H "Metadata-Flavor: Google" 2>/dev/null || echo "master")
 
     mkdir -p /tmp/ansible-inventory
     cat > /tmp/ansible-inventory/localhost << EOF
@@ -55,10 +57,12 @@ runcmd:
     galaxy_user="dev@galaxyproject.org"
     EOF
 
-    echo "[`date`] - NFS storage size for Galaxy: ${PERSISTENT_DISK_SIZE}"
+    echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
+    echo "[`date`] - Git Repository: ${GIT_REPO}"
+    echo "[`date`] - Git Branch: ${GIT_BRANCH}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U https://github.com/galaxyproject/galaxy-k8s-boot.git -C master -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 playbook.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 playbook.yml
 
     echo "[`date`] - User data script completed."
     '
