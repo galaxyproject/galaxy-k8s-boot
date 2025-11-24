@@ -187,5 +187,5 @@ jobs:
           echo "Git Branch: ${{ inputs.git-branch }}"
           if [ -n "${{ steps.test-api.outputs.version-info }}" ]; then
             echo "Galaxy Version Info:"
-            echo "${{ steps.test-api.outputs.version-info }}" 
+            echo "${{ steps.test-api.outputs.version-info }}" | jq .
           fi
