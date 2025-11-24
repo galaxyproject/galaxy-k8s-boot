@@ -59,7 +59,16 @@ ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=rea
 galaxy_chart: cloudve/galaxy
 galaxy_chart_version: "6.6.0"
 galaxy_deps_version: "1.1.1"
-galaxy_values_file: "values/values.yml"
+
+# Galaxy Helm values files configuration
+# Supports both single file (string, deprecated) and multiple files (list)
+# Examples:
+#   galaxy_values_file: "values/values.yml"  # Single file (backward compatible)
+#   galaxy_values_files: ["values/values.yml", "values/custom.yml"]  # Multiple files
+galaxy_values_file: ""  # Deprecated - use galaxy_values_files instead
+galaxy_values_files:
+  - "values/values.yml"
+
 galaxy_persistence_size: "20Gi"
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"

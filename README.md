@@ -54,7 +54,32 @@ Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
 - `-p, --project`: GCP project ID (default: anvil-and-terra-development)
 - `-s, --disk-size`: Size of persistent disk (default: 150GB)
 - `-z, --zone`: GCP zone (default: us-east4-c)
+- `-g, --git-repo`: Git repository URL (default: https://github.com/galaxyproject/galaxy-k8s-boot.git)
+- `-b, --git-branch`: Git branch to deploy (default: master)
 - `--ephemeral-only`: Create VM without persistent disk
+
+#### Examples
+
+**Basic deployment:**
+```bash
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." my-galaxy-vm
+```
+
+**Custom git repository and branch (for testing/development):**
+```bash
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." \
+  -g "https://github.com/username/galaxy-k8s-boot.git" \
+  -b "feature-branch" \
+  my-test-vm
+```
+
+**With custom machine type and larger disk:**
+```bash
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." \
+  -m "e2-standard-8" \
+  -s "500GB" \
+  my-production-vm
+```
 
 ### Manual Deployment
 
@@ -204,6 +229,81 @@ When `enable_gcp_batch=true`, the playbook automatically:
 - **Restarts Deployments**: Applies configuration changes by restarting Galaxy pods
 
 No manual intervention required for NFS path detection or configuration updates.
+## Advanced Configuration
+
+### Using Multiple Helm Values Files
+
+The Galaxy deployment supports using multiple Helm values files, which allows you to compose configurations from different sources. This is useful for:
+- Separating base configuration from environment-specific overrides
+- Maintaining common settings across deployments
+- Adding optional features (like GCP Batch) via additional values files
+
+#### Single Values File (Default)
+
+By default, the playbook uses `values/values.yml`:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml
+```
+
+You can specify a different single file:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "galaxy_values_file=values/custom.yml"
+```
+
+#### Multiple Values Files
+
+To use multiple values files, pass a list to `galaxy_values_files`:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars '{"galaxy_values_files": ["values/values.yml", "values/gcp-batch.yml"]}'
+```
+
+Or using JSON syntax:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  -e galaxy_values_files='["values/base.yml","values/prod.yml"]'
+```
+
+Files are applied in order, with later files overriding earlier ones (following Helm's standard behavior).
+
+#### Example: Composing Configurations
+
+Create separate values files for different purposes:
+
+```yaml
+# values/base.yml - Common settings
+persistence:
+  size: "20Gi"
+postgresql:
+  galaxyDatabasePassword: "changeme"
+
+# values/production.yml - Production-specific settings
+persistence:
+  size: "100Gi"
+configs:
+  galaxy.yml:
+    galaxy:
+      admin_users: "admin@example.com"
+
+# values/gcp-batch.yml - GCP Batch job runner
+configs:
+  job_conf.yml:
+    runners:
+      gcp_batch:
+        load: galaxy.jobs.runners.gcp_batch:GCPBatchJobRunner
+```
+
+Then deploy with:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  -e galaxy_values_files='["values/base.yml","values/production.yml","values/gcp-batch.yml"]'
+```
 
 ## Deleting the VM
 

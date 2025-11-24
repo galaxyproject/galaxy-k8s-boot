@@ -13,12 +13,17 @@ MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
 BOOT_DISK_SIZE="100GB"
 DISK_SIZE="150GB"
 DISK_TYPE="pd-balanced"
+GALAXY_CHART_VERSION="6.6.0"
+GALAXY_DEPS_VERSION="1.1.1"
+GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
+GIT_BRANCH="master"
 
 # Parse command line arguments
 INSTANCE_NAME=""
 DISK_NAME=""
 SSH_KEY=""
 EPHEMERAL_ONLY=false
+GALAXY_VALUES_FILES=()  # Array to hold multiple values files
 
 usage() {
     cat << EOF
@@ -35,8 +40,13 @@ Options:
   -i, --machine-image IMAGE   Machine image name (default: $MACHINE_IMAGE)
   -d, --disk-name DISK_NAME   Name of persistent disk (default: galaxy-data-INSTANCE_NAME)
   -s, --disk-size SIZE        Size of persistent disk (default: $DISK_SIZE)
-  -k, --ssh-key SSH_KEY       SSH public key for ubuntu user (required)
-  -m, --machine-type TYPE     Machine type (default: $MACHINE_TYPE)
+  -k, --ssh-key SSH_KEY             SSH public key for ubuntu user (required)
+  -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
+  --galaxy-chart-version VERSION    Galaxy Helm chart version (default: $GALAXY_CHART_VERSION)
+  --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
+  -g, --git-repo REPO         Git repository URL (default: $GIT_REPO)
+  -b, --git-branch BRANCH     Git branch to deploy (default: $GIT_BRANCH)
+  -f, --values FILE                 Helm values file (can be specified multiple times, default: values/values.yml)
   --ephemeral-only            Create VM without persistent disk
   -h, --help                  Show this help message
 
@@ -52,6 +62,15 @@ Examples:
 
   # Create VM without persistent storage (testing only)
   $0 -k "ssh-rsa AAAAB3..." --ephemeral-only my-galaxy-vm
+
+  # Launch VM with specific Galaxy chart versions
+  $0 -k "ssh-rsa AAAAB3..." --galaxy-chart-version "6.0.0" --galaxy-deps-version "1.1.0" my-galaxy-vm
+
+  # Launch VM with multiple Helm values files (order matters - later files override earlier ones)
+  $0 -k "ssh-rsa AAAAB3..." -f values/values.yml -f values/gcp-batch.yml my-galaxy-vm
+  $0 -k "ssh-rsa AAAAB3..." --values values/values.yml --values values/dev.yml --values values/v25.0.2.yml my-galaxy-vm
+  # Launch VM with custom git repository and branch
+  $0 -k "ssh-rsa AAAAB3..." -g "https://github.com/username/galaxy-k8s-boot.git" -b "feature-branch" my-galaxy-vm
 
 EOF
 }
@@ -85,6 +104,24 @@ while [[ $# -gt 0 ]]; do
             ;;
         -m|--machine-type)
             MACHINE_TYPE="$2"
+            shift 2
+            ;;
+        --galaxy-chart-version)
+            GALAXY_CHART_VERSION="$2"
+            shift 2
+            ;;
+        --galaxy-deps-version)
+            GALAXY_DEPS_VERSION="$2"
+            shift 2
+            ;;
+        -f|--values)
+            GALAXY_VALUES_FILES+=("$2")
+        -g|--git-repo)
+            GIT_REPO="$2"
+            shift 2
+            ;;
+        -b|--git-branch)
+            GIT_BRANCH="$2"
             shift 2
             ;;
         --ephemeral-only)
@@ -131,12 +168,26 @@ if [ -z "$DISK_NAME" ]; then
     DISK_NAME="galaxy-data-$INSTANCE_NAME"
 fi
 
+# Set default values file if none provided
+if [ ${#GALAXY_VALUES_FILES[@]} -eq 0 ]; then
+    GALAXY_VALUES_FILES=("values/values.yml")
+fi
+
+# Convert values files array to semicolon-separated string for metadata
+# (semicolon is used instead of comma to avoid conflicts with gcloud metadata format)
+GALAXY_VALUES_FILES_LIST=$(IFS=';'; echo "${GALAXY_VALUES_FILES[*]}")
+
 echo "=== Galaxy Kubernetes Boot VM Launch ==="
 echo "Instance Name: $INSTANCE_NAME"
 echo "Project: $PROJECT"
 echo "Zone: $ZONE"
 echo "Machine Type: $MACHINE_TYPE"
 echo "Machine Image: $MACHINE_IMAGE"
+echo "Galaxy Chart Version: $GALAXY_CHART_VERSION"
+echo "Galaxy Deps Version: $GALAXY_DEPS_VERSION"
+echo "Galaxy Values Files: ${GALAXY_VALUES_FILES[@]}"
+echo "Git Repository: $GIT_REPO"
+echo "Git Branch: $GIT_BRANCH"
 
 if [ "$EPHEMERAL_ONLY" = false ]; then
     echo "Disk Name: $DISK_NAME"
@@ -173,6 +224,106 @@ else
     echo "ℹ Using ephemeral storage only (no persistent disk)."
 fi
 
+# Generate custom user_data.sh with values baked in
+TEMP_USER_DATA=$(mktemp /tmp/user_data.XXXXXX.sh)
+trap "rm -f $TEMP_USER_DATA" EXIT
+
+cat > "$TEMP_USER_DATA" << 'EOF'
+#cloud-config
+runcmd:
+  - |
+    # Setup persistent disk if available
+    DISK_DEVICE="/dev/disk/by-id/google-galaxy-data"
+    if [ -b "$DISK_DEVICE" ]; then
+      echo "[`date`] - Found persistent disk at $DISK_DEVICE"
+
+      # Check if disk is already formatted
+      if ! blkid "$DISK_DEVICE" > /dev/null 2>&1; then
+        echo "[`date`] - Formatting disk $DISK_DEVICE with ext4"
+        mkfs -t ext4 "$DISK_DEVICE"
+      else
+        echo "[`date`] - Disk $DISK_DEVICE is already formatted"
+      fi
+
+      # Create mount point and mount
+      mkdir -p /mnt/block_storage
+      mount "$DISK_DEVICE" /mnt/block_storage
+
+      # Add to fstab for persistent mounting across reboots
+      DISK_UUID=$(blkid -s UUID -o value "$DISK_DEVICE")
+      if ! grep -q "$DISK_UUID" /etc/fstab; then
+        echo "UUID=$DISK_UUID /mnt/block_storage ext4 defaults 0 2" >> /etc/fstab
+      fi
+
+      # Set proper ownership
+      chown ubuntu:ubuntu /mnt/block_storage
+      echo "[`date`] - Persistent disk mounted at /mnt/block_storage"
+    else
+      echo "[`date`] - No persistent disk found. Galaxy will use ephemeral storage."
+    fi
+  - |
+    # Run ansible-pull as ubuntu user
+    sudo -u ubuntu bash -c '
+    export HOME=/home/ubuntu
+    HOST_IP=$(curl -s ifconfig.me)
+
+EOF
+
+# Add the configuration values directly into the script
+if [ "$EPHEMERAL_ONLY" = false ]; then
+    PV_SIZE_VALUE="${PV_SIZE}Gi"
+else
+    PV_SIZE_VALUE="20Gi"
+fi
+
+# Convert values files list to JSON array
+GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_LIST" | sed -e 's/;/","/g' -e 's/^/["/' -e 's/$/"]/')
+
+cat >> "$TEMP_USER_DATA" << EOF
+    # Configuration from launch_vm.sh
+    PV_SIZE="${PV_SIZE_VALUE}"
+    GIT_REPO="${GIT_REPO}"
+    GIT_BRANCH="${GIT_BRANCH}"
+    GALAXY_CHART_VERSION="${GALAXY_CHART_VERSION}"
+    GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
+    GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
+EOF
+
+cat >> "$TEMP_USER_DATA" << 'EOF'
+
+    mkdir -p /tmp/ansible-inventory
+    cat > /tmp/ansible-inventory/localhost << INVEOF
+    [vm]
+    127.0.0.1 ansible_connection=local ansible_python_interpreter="/usr/bin/python3"
+
+    [all:vars]
+    ansible_user="ubuntu"
+    rke2_token="defaultSecret12345"
+    rke2_additional_sans=["${HOST_IP}"]
+    rke2_debug=true
+    nfs_size="${PV_SIZE}"
+    galaxy_persistence_size="${PV_SIZE}"
+    galaxy_db_password="gxy-db-password"
+    galaxy_user="dev@galaxyproject.org"
+    INVEOF
+
+    echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
+    echo "[`date`] - Git Repository: ${GIT_REPO}"
+    echo "[`date`] - Git Branch: ${GIT_BRANCH}"
+    echo "[`date`] - Galaxy Chart Version: ${GALAXY_CHART_VERSION}"
+    echo "[`date`] - Galaxy Deps Version: ${GALAXY_DEPS_VERSION}"
+    echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_JSON}"
+    echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
+
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}}" playbook.yml
+
+    echo "[`date`] - User data script completed."
+    '
+
+EOF
+
+echo "ℹ Generated custom user_data.sh at $TEMP_USER_DATA"
+
 # Launch the VM
 echo "Launching VM '$INSTANCE_NAME'..."
 
@@ -188,11 +339,12 @@ GCLOUD_CMD=(
     --boot-disk-type="$DISK_TYPE"
     --tags=k8s,http-server,https-server
     --scopes=cloud-platform
-    --metadata-from-file=user-data=bin/user_data.sh
+    --metadata-from-file=user-data="$TEMP_USER_DATA"
+    --metadata=ssh-keys="ubuntu:$SSH_KEY"
 )
 
 # Build metadata string
-METADATA="ssh-keys=ubuntu:$SSH_KEY"
+METADATA="ssh-keys=ubuntu:$SSH_KEY,git-repo=${GIT_REPO},git-branch=${GIT_BRANCH}"
 if [ "$EPHEMERAL_ONLY" = false ]; then
     METADATA="${METADATA},persistent-volume-size=${PV_SIZE}Gi"
 fi

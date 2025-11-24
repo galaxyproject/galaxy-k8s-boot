@@ -1,0 +1,94 @@
+
+configs:
+  job_conf.yml:
+    runners:
+      gcp_batch:
+        load: galaxy.jobs.runners.gcp_batch:GoogleCloudBatchJobRunner
+        workers: 4
+        # Basic GCP settings
+        project_id: anvil-and-terra-development
+        region: us-east4
+#        service_account_file: /etc/secrets/galaxy/key.json
+        service_account_email: galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com
+
+        # NFS configuration (required)
+        # nfs_server is set dynamically by the playbook via helm_values_gcp_batch
+        nfs_path: /             # Root path on NFS server. This will be updated by the playbook.
+        nfs_mount_path: /galaxy/server/database # Mount point in Batch VMs
+
+        # Network configuration (required for NFS access)
+        network: default
+        subnet: default
+
+        # Compute resources (defaults shown)
+        machine_type: n2-standard-4
+        vcpu: 1.0
+        memory_mib: 2048
+        boot_disk_size_gb: 100
+        boot_disk_type: pd-standard
+
+        # Container settings
+        use_container: true
+        container_image: ksuderman/galaxy-min:25.1-batch-2  # fallback if tool doesn't specify
+        galaxy_user_id: 10001
+        galaxy_group_id: 10001
+
+        # Custom VM image with CVMFS pre-configured (update date as needed)
+#        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2025-09-26
+        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-batch-debian12-20251118
+        # Job execution settings
+        max_retry_count: 3
+        max_run_duration: 3600s
+        polling_interval: 30
+    execution:
+      default: tpv_dispatcher
+      environments:
+        local:
+          runner: local
+        gcp_batch:
+          runner: gcp_batch
+          # Override runner parameters if needed
+          container_image: ubuntu:20.04
+          machine_type: e2-standard-4
+    destinations:
+      - id: gcp_batch_default
+        runner: gcp_batch
+      - id: k8s_default
+        runner: k8s
+      - id: local_default
+        runner: local
+    tools:
+      - environment: local
+        id: upload1
+      - environment: local
+        id: __DATA_FETCH__
+      - environment: local
+        id: __EXPORT_HISTORY__
+      - environment: local
+        id: __IMPORT_HISTORY__
+      - environment: local
+        id: __SET_METADATA__
+      - environment: local
+        id: __EXTRACT_DATASET__
+      # Route interactive tools to Kubernetes
+      - environment: local
+        id: interactive_tool.*
+      # Route data source tools to Kubernetes
+      - environment: local
+        id: .*data_source.*
+      # Keep workflows internal to cluster
+      - environment: local
+        id: __EXPORT_WORKFLOW__
+      - environment: local
+        id: __IMPORT_WORKFLOW__
+
+jobs:
+   rules:
+    tpv_rules_local.yml:
+      destinations:
+        gcp_batch:
+          runner: gcp_batch
+          params:
+            docker_enabled: "true"
+            cores: "{cores}"
+            mem: "{mem}"
