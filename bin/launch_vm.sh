@@ -15,6 +15,8 @@ DISK_SIZE="150GB"
 DISK_TYPE="pd-balanced"
 GALAXY_CHART_VERSION="6.6.0"
 GALAXY_DEPS_VERSION="1.1.1"
+GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
+GIT_BRANCH="master"
 
 # Parse command line arguments
 INSTANCE_NAME=""
@@ -42,9 +44,11 @@ Options:
   -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
   --galaxy-chart-version VERSION    Galaxy Helm chart version (default: $GALAXY_CHART_VERSION)
   --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
+  -g, --git-repo REPO         Git repository URL (default: $GIT_REPO)
+  -b, --git-branch BRANCH     Git branch to deploy (default: $GIT_BRANCH)
   -f, --values FILE                 Helm values file (can be specified multiple times, default: values/values.yml)
-  --ephemeral-only                  Create VM without persistent disk
-  -h, --help                        Show this help message
+  --ephemeral-only            Create VM without persistent disk
+  -h, --help                  Show this help message
 
 Examples:
   # Launch VM with new or existing disk
@@ -65,6 +69,8 @@ Examples:
   # Launch VM with multiple Helm values files (order matters - later files override earlier ones)
   $0 -k "ssh-rsa AAAAB3..." -f values/values.yml -f values/gcp-batch.yml my-galaxy-vm
   $0 -k "ssh-rsa AAAAB3..." --values values/values.yml --values values/dev.yml --values values/v25.0.2.yml my-galaxy-vm
+  # Launch VM with custom git repository and branch
+  $0 -k "ssh-rsa AAAAB3..." -g "https://github.com/username/galaxy-k8s-boot.git" -b "feature-branch" my-galaxy-vm
 
 EOF
 }
@@ -110,6 +116,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         -f|--values)
             GALAXY_VALUES_FILES+=("$2")
+        -g|--git-repo)
+            GIT_REPO="$2"
+            shift 2
+            ;;
+        -b|--git-branch)
+            GIT_BRANCH="$2"
             shift 2
             ;;
         --ephemeral-only)
@@ -174,6 +186,8 @@ echo "Machine Image: $MACHINE_IMAGE"
 echo "Galaxy Chart Version: $GALAXY_CHART_VERSION"
 echo "Galaxy Deps Version: $GALAXY_DEPS_VERSION"
 echo "Galaxy Values Files: ${GALAXY_VALUES_FILES[@]}"
+echo "Git Repository: $GIT_REPO"
+echo "Git Branch: $GIT_BRANCH"
 
 if [ "$EPHEMERAL_ONLY" = false ]; then
     echo "Disk Name: $DISK_NAME"
@@ -328,6 +342,15 @@ GCLOUD_CMD=(
     --metadata-from-file=user-data="$TEMP_USER_DATA"
     --metadata=ssh-keys="ubuntu:$SSH_KEY"
 )
+
+# Build metadata string
+METADATA="ssh-keys=ubuntu:$SSH_KEY,git-repo=${GIT_REPO},git-branch=${GIT_BRANCH}"
+if [ "$EPHEMERAL_ONLY" = false ]; then
+    METADATA="${METADATA},persistent-volume-size=${PV_SIZE}Gi"
+fi
+
+# Add combined metadata
+GCLOUD_CMD+=(--metadata="$METADATA")
 
 # Add disk flag if not ephemeral only
 if [ "$EPHEMERAL_ONLY" = false ]; then

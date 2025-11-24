@@ -54,7 +54,32 @@ Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
 - `-p, --project`: GCP project ID (default: anvil-and-terra-development)
 - `-s, --disk-size`: Size of persistent disk (default: 150GB)
 - `-z, --zone`: GCP zone (default: us-east4-c)
+- `-g, --git-repo`: Git repository URL (default: https://github.com/galaxyproject/galaxy-k8s-boot.git)
+- `-b, --git-branch`: Git branch to deploy (default: master)
 - `--ephemeral-only`: Create VM without persistent disk
+
+#### Examples
+
+**Basic deployment:**
+```bash
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." my-galaxy-vm
+```
+
+**Custom git repository and branch (for testing/development):**
+```bash
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." \
+  -g "https://github.com/username/galaxy-k8s-boot.git" \
+  -b "feature-branch" \
+  my-test-vm
+```
+
+**With custom machine type and larger disk:**
+```bash
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." \
+  -m "e2-standard-8" \
+  -s "500GB" \
+  my-production-vm
+```
 
 ### Manual Deployment
 
