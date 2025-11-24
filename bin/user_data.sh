@@ -38,6 +38,12 @@ runcmd:
 
     # Get configuration from metadata with fallback defaults
     PV_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/persistent-volume-size" -H "Metadata-Flavor: Google" 2>/dev/null || echo "20Gi")
+    GALAXY_CHART_VERSION=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-chart-version" -H "Metadata-Flavor: Google" 2>/dev/null || echo "6.6.0")
+    GALAXY_DEPS_VERSION=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-deps-version" -H "Metadata-Flavor: Google" 2>/dev/null || echo "1.1.1")
+    GALAXY_VALUES_FILES_LIST=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-values-files" -H "Metadata-Flavor: Google" 2>/dev/null || echo "values/values.yml")
+
+    # Convert semicolon-separated values files to JSON array for Ansible
+    GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_LIST" | sed -e 's/;/","/g' -e 's/^/["/' -e 's/$/"]/')
     GIT_REPO=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-repo" -H "Metadata-Flavor: Google" 2>/dev/null || echo "https://github.com/galaxyproject/galaxy-k8s-boot.git")
     GIT_BRANCH=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-branch" -H "Metadata-Flavor: Google" 2>/dev/null || echo "master")
 
@@ -58,11 +64,14 @@ runcmd:
     EOF
 
     echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
+    echo "[`date`] - Galaxy Chart Version: ${GALAXY_CHART_VERSION}"
+    echo "[`date`] - Galaxy Deps Version: ${GALAXY_DEPS_VERSION}"
+    echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_LIST}"
     echo "[`date`] - Git Repository: ${GIT_REPO}"
     echo "[`date`] - Git Branch: ${GIT_BRANCH}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 playbook.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "galaxy_chart_version=${GALAXY_CHART_VERSION}" --extra-vars "galaxy_deps_version=${GALAXY_DEPS_VERSION}" --extra-vars "galaxy_values_files=${GALAXY_VALUES_FILES_JSON}" playbook.yml
 
     echo "[`date`] - User data script completed."
     '
