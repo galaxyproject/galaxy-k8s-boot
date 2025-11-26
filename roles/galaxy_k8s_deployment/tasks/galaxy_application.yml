@@ -29,35 +29,26 @@
     kubeconfig: "{{ kubeconfig_path }}"
 
 # ============================================================================
-# GCP Batch: NFS LoadBalancer IP Detection
+# GCP Batch: NFS Server Configuration
 # ============================================================================
-- name: Wait for NFS LoadBalancer to be assigned
+# RKE2 without a cloud controller doesn't provision LoadBalancer external IPs.
+# Instead, we patch the NFS service to use the node's internal IP as an externalIP,
+# which is accessible from GCP Batch VMs in the same VPC.
+
+- name: Get node internal IP for NFS access
+  set_fact:
+    nfs_server: "{{ ansible_default_ipv4.address }}"
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Verify NFS service exists
   kubernetes.core.k8s_info:
     api_version: v1
     kind: Service
     name: nfs-provisioner-nfs-server-provisioner
     namespace: nfs-provisioner
     kubeconfig: "{{ kubeconfig_path }}"
-    wait: true
-    wait_condition:
-      type: status.loadBalancer.ingress
-    wait_timeout: 300
   register: nfs_service_info
-  retries: 10
-  delay: 10
-  until:
-    - nfs_service_info.resources | length > 0
-    - nfs_service_info.resources[0].status.loadBalancer is defined
-    - nfs_service_info.resources[0].status.loadBalancer.ingress is defined
-    - nfs_service_info.resources[0].status.loadBalancer.ingress | length > 0
   when: enable_gcp_batch | default(false) | bool
-
-- name: Set NFS server IP from LoadBalancer for GCP Batch VPC access
-  set_fact:
-    nfs_server: "{{ nfs_service_info.resources[0].status.loadBalancer.ingress[0].ip }}"
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_service_info.resources | length > 0
 
 - name: Fail if NFS service not found
   fail:
@@ -66,9 +57,23 @@
     - enable_gcp_batch | default(false) | bool
     - nfs_service_info.resources | length == 0
 
+- name: Patch NFS service with node internal IP as externalIP
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: Service
+    name: nfs-provisioner-nfs-server-provisioner
+    namespace: nfs-provisioner
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      spec:
+        externalIPs:
+          - "{{ nfs_server }}"
+  when: enable_gcp_batch | default(false) | bool
+
 - name: Display NFS server access method
   debug:
-    msg: "Using NFS LoadBalancer IP: {{ nfs_server }} (accessible from GCP Batch VMs)"
+    msg: "Using node internal IP for NFS: {{ nfs_server }} (accessible from GCP Batch VMs in same VPC)"
   when: enable_gcp_batch | default(false) | bool
 
 # Prepare values files list with backward compatibility
