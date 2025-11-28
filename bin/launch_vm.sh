@@ -20,6 +20,7 @@ ZONE="us-east4-c"
 
 # Parse command line arguments
 DISK_NAME=""
+ENABLE_GCP_BATCH=false
 EPHEMERAL_ONLY=false
 GALAXY_VALUES_FILES=()  # Array to hold multiple values files
 INSTANCE_NAME=""
@@ -39,6 +40,7 @@ Options:
   -d, --disk-name DISK_NAME         Name of persistent disk (default: galaxy-data-INSTANCE_NAME)
   -e, --ephemeral-only              Create VM without persistent disk
   -f, --values FILE                 Helm values file (can be specified multiple times, default: values/values.yml)
+  -g, --enable-gcp-batch            Enable GCP Batch job runner support (configures NFS for external access)
   -i, --machine-image IMAGE         Machine image name (default: $MACHINE_IMAGE)
   -k, --ssh-key SSH_KEY             SSH public key for ubuntu user (required)
   -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
@@ -93,6 +95,10 @@ while [[ $# -gt 0 ]]; do
         -f|--values)
             GALAXY_VALUES_FILES+=("$2")
             shift 2
+            ;;
+        -g|--enable-gcp-batch)
+            ENABLE_GCP_BATCH=true
+            shift
             ;;
         -i|--machine-image)
             MACHINE_IMAGE="$2"
@@ -191,6 +197,7 @@ echo "Galaxy Deps Version: $GALAXY_DEPS_VERSION"
 echo "Galaxy Values Files: ${GALAXY_VALUES_FILES[@]}"
 echo "Git Repository: $GIT_REPO"
 echo "Git Branch: $GIT_BRANCH"
+echo "GCP Batch Support: $ENABLE_GCP_BATCH"
 
 if [ "$EPHEMERAL_ONLY" = false ]; then
     echo "Disk Name: $DISK_NAME"
@@ -290,6 +297,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_CHART_VERSION="${GALAXY_CHART_VERSION}"
     GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
+    ENABLE_GCP_BATCH="${ENABLE_GCP_BATCH}"
 EOF
 
 cat >> "$TEMP_USER_DATA" << 'EOF'
@@ -308,7 +316,6 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     galaxy_persistence_size="${PV_SIZE}"
     galaxy_db_password="gxy-db-password"
     galaxy_user="dev@galaxyproject.org"
-    enable_gcp_batch=true
     INVEOF
 
     echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
@@ -317,9 +324,10 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     echo "[`date`] - Galaxy Chart Version: ${GALAXY_CHART_VERSION}"
     echo "[`date`] - Galaxy Deps Version: ${GALAXY_DEPS_VERSION}"
     echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_JSON}"
+    echo "[`date`] - GCP Batch Support: ${ENABLE_GCP_BATCH}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}}" playbook.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}, \"enable_gcp_batch\": ${ENABLE_GCP_BATCH}}" playbook.yml
 
     echo "[`date`] - User data script completed."
     '
