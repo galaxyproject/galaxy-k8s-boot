@@ -76,6 +76,13 @@
     msg: "Using node internal IP for NFS: {{ nfs_server }} (accessible from GCP Batch VMs in same VPC)"
   when: enable_gcp_batch | default(false) | bool
 
+- name: Fail if NFS server IP not determined
+  fail:
+    msg: "Could not determine NFS server IP. ansible_default_ipv4.address = {{ ansible_default_ipv4.address | default('undefined') }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_server is not defined or nfs_server == ""
+
 # Prepare values files list with backward compatibility
 - name: Prepare Galaxy values files list
   set_fact:
@@ -154,13 +161,11 @@
     wait_timeout: 300
   when: enable_gcp_batch | default(false) | bool
 
-- name: Detect NFS export path for Galaxy PVC
+- name: Detect NFS export path for Galaxy PVC from PersistentVolume
   shell: |
-    # Wait a moment for NFS export to be available
-    sleep 10
-
-    # Get NFS exports and find the PVC export path
-    showmount -e {{ nfs_server }} | grep '/export/pvc-' | head -1 | awk '{print $1}'
+    kubectl get pv -o jsonpath='{range .items[*]}{.spec.claimRef.name}{"\t"}{.spec.nfs.path}{"\n"}{end}' | grep galaxy-galaxy-pvc | awk '{print $2}'
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
   register: nfs_export_detection
   retries: 10
   delay: 5
@@ -202,7 +207,19 @@
   register: galaxy_configs
   when: enable_gcp_batch | default(false) | bool
 
-- name: Update job_conf.yml with NFS export path
+- name: Display NFS configuration to be applied
+  debug:
+    msg: |
+      Updating Galaxy job_conf.yml with GCP Batch NFS settings:
+        nfs_server: {{ nfs_server }}
+        nfs_path: {{ nfs_export_path }}
+        nfs_mount_path: /galaxy/server/database
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+    - nfs_server is defined
+
+- name: Update job_conf.yml with NFS server and export path
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
@@ -212,10 +229,29 @@
       metadata:
         name: galaxy-configs
         namespace: galaxy
-      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'nfs_path': nfs_export_path}}}, recursive=True) | to_nice_yaml) }) }}"
+      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'nfs_server': nfs_server, 'nfs_path': nfs_export_path}}}, recursive=True) | to_nice_yaml) }) }}"
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
+    - nfs_server is defined
+
+- name: Verify NFS configuration was applied
+  shell: |
+    kubectl get configmap galaxy-configs -n galaxy -o jsonpath='{.data.job_conf\.yml}' | grep -E 'nfs_server|nfs_path'
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: nfs_config_verify
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+- name: Display verified NFS configuration
+  debug:
+    msg: "Verified NFS config in ConfigMap:\n{{ nfs_config_verify.stdout }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_config_verify is defined
+    - nfs_config_verify.stdout is defined
 
 - name: Restart Galaxy deployments to pick up configuration changes
   shell: kubectl rollout restart deployment {{ item }} -n galaxy
