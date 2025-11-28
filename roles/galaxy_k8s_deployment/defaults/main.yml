@@ -61,11 +61,9 @@ galaxy_chart_version: "6.6.0"
 galaxy_deps_version: "1.1.1"
 
 # Galaxy Helm values files configuration
-# Supports both single file (string, deprecated) and multiple files (list)
-# Examples:
-#   galaxy_values_file: "values/values.yml"  # Single file (backward compatible)
-#   galaxy_values_files: ["values/values.yml", "values/custom.yml"]  # Multiple files
-galaxy_values_file: ""  # Deprecated - use galaxy_values_files instead
+# Specify one or more values files to customize the Galaxy deployment
+# Files are applied in order - later files override earlier ones
+# Example: ["values/values.yml", "values/batch.yml", "values/custom.yml"]
 galaxy_values_files:
   - "values/values.yml"
 

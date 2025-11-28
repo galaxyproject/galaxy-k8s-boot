@@ -76,17 +76,10 @@
     msg: "Using node internal IP for NFS: {{ nfs_server }} (accessible from GCP Batch VMs in same VPC)"
   when: enable_gcp_batch | default(false) | bool
 
-# Prepare values files list with backward compatibility
+# Prepare values files list
 - name: Prepare Galaxy values files list
   set_fact:
-    _galaxy_values_files: >-
-      {%- if galaxy_values_file is defined and galaxy_values_file != "" -%}
-        {{ [galaxy_values_file] }}
-      {%- elif galaxy_values_files is defined and galaxy_values_files | length > 0 -%}
-        {{ galaxy_values_files }}
-      {%- else -%}
-        {{ ['values/values.yml'] }}
-      {%- endif -%}
+    _galaxy_values_files: "{{ galaxy_values_files | default(['values/values.yml']) }}"
 
 - name: Display Galaxy values files being used
   debug:
