@@ -83,17 +83,9 @@
     - enable_gcp_batch | default(false) | bool
     - nfs_server is not defined or nfs_server == ""
 
-# Prepare values files list with backward compatibility
 - name: Prepare Galaxy values files list
   set_fact:
-    _galaxy_values_files: >-
-      {%- if galaxy_values_file is defined and galaxy_values_file != "" -%}
-        {{ [galaxy_values_file] }}
-      {%- elif galaxy_values_files is defined and galaxy_values_files | length > 0 -%}
-        {{ galaxy_values_files }}
-      {%- else -%}
-        {{ ['values/values.yml'] }}
-      {%- endif -%}
+    _galaxy_values_files: "{{ galaxy_values_files | default(['values/values.yml']) }}"
 
 - name: Display Galaxy values files being used
   debug:
@@ -147,18 +139,15 @@
 # ============================================================================
 # GCP Batch: NFS Export Path Detection
 # ============================================================================
-- name: Wait for Galaxy PVC to be created
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: PersistentVolumeClaim
-    name: galaxy-galaxy-pvc
-    namespace: galaxy
-    kubeconfig: "{{ kubeconfig_path }}"
-    wait: true
-    wait_condition:
-      type: Bound
-      status: "True"
-    wait_timeout: 300
+- name: Wait for Galaxy PVC to be bound
+  shell: |
+    kubectl get pvc galaxy-galaxy-pvc -n galaxy -o jsonpath='{.status.phase}'
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: pvc_status
+  retries: 60
+  delay: 10
+  until: pvc_status.stdout == "Bound"
   when: enable_gcp_batch | default(false) | bool
 
 - name: Detect NFS export path for Galaxy PVC from PersistentVolume
@@ -174,11 +163,11 @@
 
 - name: Set NFS export path for Galaxy database
   set_fact:
-    nfs_export_path: "{{ nfs_export_detection.stdout }}"
+    nfs_export_path: "{{ nfs_export_detection.stdout | trim }}"
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_detection.stdout is defined
-    - nfs_export_detection.stdout != ""
+    - nfs_export_detection.stdout | trim != ""
 
 - name: Display detected NFS export path
   debug:
@@ -195,22 +184,15 @@
     - nfs_export_path is not defined or nfs_export_path == ""
 
 # ============================================================================
-# GCP Batch: Update Configuration and Restart
+# GCP Batch: Update Configuration with Helm Upgrade
 # ============================================================================
-- name: Get current job_conf.yml from ConfigMap
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: ConfigMap
-    name: galaxy-configs
-    namespace: galaxy
-    kubeconfig: "{{ kubeconfig_path }}"
-  register: galaxy_configs
-  when: enable_gcp_batch | default(false) | bool
+# Use Helm upgrade to properly update the ConfigMap with the detected NFS path.
+# This is more reliable than patching the ConfigMap directly.
 
 - name: Display NFS configuration to be applied
   debug:
     msg: |
-      Updating Galaxy job_conf.yml with GCP Batch NFS settings:
+      Upgrading Galaxy Helm release with GCP Batch NFS settings:
         nfs_server: {{ nfs_server }}
         nfs_path: {{ nfs_export_path }}
         nfs_mount_path: /galaxy/server/database
@@ -219,17 +201,41 @@
     - nfs_export_path is defined
     - nfs_server is defined
 
-- name: Update job_conf.yml with NFS server and export path
-  kubernetes.core.k8s:
-    state: present
+- name: Helm upgrade Galaxy with detected NFS export path
+  kubernetes.core.helm:
+    name: galaxy
+    namespace: galaxy
+    chart_ref: "{{ galaxy_chart }}"
+    chart_version: "{{ galaxy_chart_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: galaxy-configs
-        namespace: galaxy
-      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'nfs_server': nfs_server, 'nfs_path': nfs_export_path}}}, recursive=True) | to_nice_yaml) }) }}"
+    values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch_with_path, recursive=True) }}"
+  vars:
+    _helm_values_base:
+      persistence:
+        size: "{{ galaxy_persistence_size }}"
+      postgresql:
+        galaxyDatabasePassword: "{{ galaxy_db_password }}"
+      configs:
+        galaxy.yml:
+          galaxy:
+            single_user: "{{ galaxy_user }}"
+            admin_users: "{{ galaxy_user }}"
+            master_api_key: "{{ galaxy_api_key | default(omit) }}"
+      jobs:
+        rules:
+          tpv_rules_local.yml:
+            destinations:
+              k8s:
+                max_cores: "{{ galaxy_job_max_cores }}"
+                max_mem: "{{ galaxy_job_max_mem }}"
+    _helm_values_gcp_batch_with_path:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              nfs_server: "{{ nfs_server }}"
+              nfs_path: "{{ nfs_export_path }}"
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
@@ -252,15 +258,3 @@
     - enable_gcp_batch | default(false) | bool
     - nfs_config_verify is defined
     - nfs_config_verify.stdout is defined
-
-- name: Restart Galaxy deployments to pick up configuration changes
-  shell: kubectl rollout restart deployment {{ item }} -n galaxy
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  loop:
-    - galaxy-web
-    - galaxy-workflow
-    - galaxy-job-0
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_export_path is defined
