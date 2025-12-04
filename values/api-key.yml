@@ -1,0 +1,4 @@
+configs:
+  galaxy.yml:
+    galaxy:
+      master_api_key: galaxypassword
