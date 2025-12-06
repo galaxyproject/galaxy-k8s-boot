@@ -17,7 +17,7 @@ on:
         required: true
       instance-name:
         description: 'Name for the test VM instance'
-        default: 'galaxy-test-ci'
+        default: 'galaxy-k8s-boot-ci'
         required: true
       gcp-project:
         description: 'GCP project ID'
@@ -77,19 +77,19 @@ jobs:
             "${{ env.INSTANCE_NAME }}"
 
       - name: Get VM IP address
-        id: vm-ip
+        id: ip
         run: |
           sleep 10  # Give VM time to fully initialize
           VM_IP=$(gcloud compute instances describe "${{ env.INSTANCE_NAME }}" \
             --project="${{ env.GCP_PROJECT }}" \
             --zone="${{ env.GCP_ZONE }}" \
             --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
-          echo "ip=${VM_IP}" >> $GITHUB_OUTPUT
+          echo "address=${VM_IP}" >> $GITHUB_OUTPUT
           echo "Galaxy VM IP: ${VM_IP}"
 
       - name: Wait for cloud-init to complete
         run: |
-          echo "Waiting for cloud-init to complete on ${{ steps.vm-ip.outputs.ip }}..."
+          echo "Waiting for cloud-init to complete on ${{ steps.ip.outputs.address }}..."
           for i in {1..60}; do
             if gcloud compute ssh "${{ env.INSTANCE_NAME }}" \
               --project="${{ env.GCP_PROJECT }}" \
@@ -114,7 +114,7 @@ jobs:
             ~/.kube/config
 
           # Update kubeconfig to use external IP
-          sed -i "s|https://0.0.0.0:6443|https://${{ steps.vm-ip.outputs.ip }}:6443|" ~/.kube/config
+          sed -i "s|https://0.0.0.0:6443|https://${{ steps.ip.outputs.address }}:6443|" ~/.kube/config
 
       - name: Wait for Galaxy deployments to rollout
         run: |
@@ -141,7 +141,7 @@ jobs:
       - name: Test Galaxy API endpoint
         id: test-api
         run: |
-          GALAXY_URL="http://${{ steps.vm-ip.outputs.ip }}/api/version"
+          GALAXY_URL="http://${{ steps.ip.outputs.address }}/api/version"
           echo "Testing Galaxy API at: $GALAXY_URL"
 
           # Wait for Galaxy to be responsive (max 5 minutes)
@@ -181,7 +181,7 @@ jobs:
         run: |
           echo "=== Test Results ==="
           echo "Instance: ${{ env.INSTANCE_NAME }}"
-          echo "IP: ${{ steps.vm-ip.outputs.ip }}"
+          echo "IP: ${{ steps.ip.outputs.address }}"
           echo "Galaxy Chart Version: ${{ inputs.galaxy-chart-version }}"
           echo "Git Repo: ${{ inputs.git-repo }}"
           echo "Git Branch: ${{ inputs.git-branch }}"

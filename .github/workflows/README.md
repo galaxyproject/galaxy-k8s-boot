@@ -30,6 +30,7 @@ gcloud iam workload-identity-pools providers create-oidc "github-provider" \
   --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
   --issuer-uri="https://token.actions.githubusercontent.com"
 ```
+**NOTE** This really only needs to be done once. Once you have created a workload identity pool and provider you can use that same pool and provider across as many different projects as you like.  However, it is ***strongly recommended*** that you create a new service account for every project or purpose as needed.
 
 #### 2. Create a Service Account
 
