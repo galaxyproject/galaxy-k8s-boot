@@ -1,0 +1,7 @@
+webHandlers:
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    failureThreshold: 50
+    timeoutSeconds: 5
