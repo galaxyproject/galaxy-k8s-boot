@@ -1,3 +1,4 @@
+.DS_Store
 .idea/
 .venv/
 .vscode/
@@ -8,3 +9,4 @@ sa-key.json
 kubeconfig.yaml
 image_prep.ini
 vm.ini
+ea-no-commit/

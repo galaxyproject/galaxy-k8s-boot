@@ -32,7 +32,7 @@ cvmfs:
 
 postgresql:
   persistence:
-    storageClass: blockstorage
+    storageClass: postgres-storage
 
 rabbitmq:
   persistence:

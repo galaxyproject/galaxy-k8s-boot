@@ -30,6 +30,36 @@ runcmd:
     else
       echo "[`date`] - No persistent disk found. Galaxy will use ephemeral storage."
     fi
+
+    # Setup PostgreSQL disk if available
+    POSTGRES_DISK_DEVICE="/dev/disk/by-id/google-galaxy-postgres-data"
+    if [ -b "$POSTGRES_DISK_DEVICE" ]; then
+      echo "[`date`] - Found PostgreSQL disk at $POSTGRES_DISK_DEVICE"
+
+      # Check if disk is already formatted
+      if ! blkid "$POSTGRES_DISK_DEVICE" > /dev/null 2>&1; then
+        echo "[`date`] - Formatting PostgreSQL disk $POSTGRES_DISK_DEVICE with ext4"
+        mkfs -t ext4 "$POSTGRES_DISK_DEVICE"
+      else
+        echo "[`date`] - PostgreSQL disk $POSTGRES_DISK_DEVICE is already formatted"
+      fi
+
+      # Create mount point and mount
+      mkdir -p /mnt/postgres_storage
+      mount "$POSTGRES_DISK_DEVICE" /mnt/postgres_storage
+
+      # Add to fstab for persistent mounting across reboots
+      POSTGRES_DISK_UUID=$(blkid -s UUID -o value "$POSTGRES_DISK_DEVICE")
+      if ! grep -q "$POSTGRES_DISK_UUID" /etc/fstab; then
+        echo "UUID=$POSTGRES_DISK_UUID /mnt/postgres_storage ext4 defaults 0 2" >> /etc/fstab
+      fi
+
+      # Set proper ownership
+      chown ubuntu:ubuntu /mnt/postgres_storage
+      echo "[`date`] - PostgreSQL disk mounted at /mnt/postgres_storage"
+    else
+      echo "[`date`] - No PostgreSQL disk found. PostgreSQL will use ephemeral storage."
+    fi
   - |
     # Run ansible-pull as ubuntu user
     sudo -u ubuntu bash -c '

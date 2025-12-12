@@ -16,72 +16,52 @@ This repo is divided into two main parts:
 1. **Image Preparation**: This part contains a playbook to prepare a cloud image
    with all necessary components pre-installed. See the [Image
    Preparation](roles/image_preparation/README.md) documentation for details.
-2. **Deployment**: This part contains a playbook to deploy the prepared image
-   onto a RKE2 Kubernetes cluster. The deployment playbook can also be used without a
-   prepared image, but using a prepared image speeds up the deployment process.
-   Documentation for the deployment process can be found below.
+2. **Deployment**: This part contains a playbook to deploy RKE2 Kubernetes
+   cluster and Galaxy. Documentation for the deployment process can be found
+   below.
 
 ## Deployment
 
-### Automated Deployment on GCP
+The preferred way to deploy Galaxy is with a pre-built Ubuntu 24.04 image
+following the documentation below. The playbook can also run on a fresh Ubuntu
+24.04 VM, but it will take longer to complete as it needs to install all
+dependencies.
 
-To deploy Galaxy on a VM on GCP, use the provided launch script to create a VM.
-The script will create a VM and install the necessary software to run the
-Ansible playbook that deploys Galaxy.
+### Automated Deployment Directly on GCP
 
-The script needs a pre-built Ubuntu 24.04 image. Internally, the script uses
-`cloud-init` to bootstrap the VM and run the Ansible playbook. The `cloud-init`
-script is located in `bin/user_data.sh`. The script will clone this repository
-and run the playbook with the appropriate variables. If you want to customize
-the deployment, it is recommended to perform these steps manually (see
-documentation below).
+The most hands-off way to deploy Galaxy is to launch a VM on GCP that runs the
+deployment playbook automatically on first boot. For this option, use the
+provided cloud-init launch script (located in `bin/user_data.sh`). Include the
+contents of the script in the VM's user data, which will install all necessary
+software by running the Ansible playbook and deploy Galaxy.
 
-Basic usage:
+For this option, paste the contents of `bin/launch_vm.sh` into the VM user data
+when launching the instance. Galaxy will be deployed automatically and should be
+available at `http://INSTANCE_IP/` in about 6 minutes.
+
+#### Monitoring Deployment
+
+After launching, you can ssh into the VM to monitor the deployment progress:
 
 ```bash
-bin/launch_vm.sh -k "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9..." INSTANCE_NAME
+# Watch cloud-init output
+sudo tail -n +1 -f /var/log/cloud-init-output.log
+
+# Monitor deployment logs
+sudo journalctl -f -u cloud-final
 ```
 
-Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
-(typically ~6 minutes).
+### Deployment from Local Machine
 
-#### Script Parameters
+One downside to the above method is that it makes it difficult to customize the
+deployment or rerun the playbook, which is useful during development. Instead,
+you can launch the VM manually and then run the playbook directly from your
+local machine.
 
-- `-k, --ssh-key`: SSH public key for the ubuntu user (required)
-- `-d, --disk-name`: Name of persistent disk (default: galaxy-data-INSTANCE_NAME)
-- `-i, --machine-image`: Machine image name (default: galaxy-k8s-boot-v2025-11-14)
-- `-m, --machine-type`: Machine type (default: e2-standard-4)
-- `-p, --project`: GCP project ID (default: anvil-and-terra-development)
-- `-s, --disk-size`: Size of persistent disk (default: 150GB)
-- `-z, --zone`: GCP zone (default: us-east4-c)
-- `-g, --git-repo`: Git repository URL (default: https://github.com/galaxyproject/galaxy-k8s-boot.git)
-- `-b, --git-branch`: Git branch to deploy (default: master)
-- `--ephemeral-only`: Create VM without persistent disk
-
-#### Examples
-
-**Basic deployment:**
-```bash
-bin/launch_vm.sh -k "ssh-rsa AAAAB3..." my-galaxy-vm
-```
-
-**Custom git repository and branch (for testing/development):**
-```bash
-bin/launch_vm.sh -k "ssh-rsa AAAAB3..." \
-  -g "https://github.com/username/galaxy-k8s-boot.git" \
-  -b "feature-branch" \
-  my-test-vm
-```
-
-**With custom machine type and larger disk:**
-```bash
-bin/launch_vm.sh -k "ssh-rsa AAAAB3..." \
-  -m "e2-standard-8" \
-  -s "500GB" \
-  my-production-vm
-```
-
-### Manual Deployment
+> [!NOTE]
+> There is a `bin/launch_vm.sh` script that automates the steps for launching
+> the VM and running the playbook. Check out `bin/launch_vm.sh --help` for
+> details.
 
 #### Prerequisites
 
@@ -106,21 +86,27 @@ gcloud compute instances create ea-rke2-c \
   --image-project=anvil-and-terra-development \
   --boot-disk-size=100GB \
   --boot-disk-type=pd-balanced \
-  --create-disk=name=galaxy-data-disk,size=150GB,type=pd-balanced,device-name=galaxy-data,auto-delete=yes \
+  --create-disk=name=galaxy-data-disk-1,size=150GB,type=pd-balanced,device-name=galaxy-data,auto-delete=no \
+  --create-disk=name=galaxy-postgres-disk-1,size=10GB,type=pd-balanced,device-name=galaxy-postgres-data,auto-delete=no \
   --tags=k8s,http-server,https-server \
   --scopes=cloud-platform \
   --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair"
 ```
 
-For attaching an existing disk instead, use
-`--disk=name=your-disk-name,device-name=galaxy-data,mode=rw` instead of the
-`--create-disk` option.
+**Note**: Both disks use `auto-delete=no` to persist after VM deletion.
+
+For attaching existing disks instead, use multiple `--disk` flags:
+```bash
+--disk=name=existing-nfs-disk,device-name=galaxy-data,mode=rw \
+--disk=name=existing-postgres-disk,device-name=galaxy-postgres-data,mode=rw
+```
 
 > [!CAUTION]
-> **Note:** Reattaching an existing disk does not currently work. Namely, NFS
-> provisioner will create a new PVC and CNPG will create a new cluster each time
-> this playbook is run, effectively resulting in a new, empty Galaxy instance.
-> This is a known issue and will be addressed in future releases.
+> **Note:** Reattaching existing disks preserves the data on disk, but CNPG will
+> create a new PostgreSQL cluster each time this playbook is run, effectively
+> resulting in a new, empty Galaxy instance. CNPG recovery/restore functionality
+> will be addressed in future releases. The NFS provisioner will currently also
+> create new PVCs on each deployment.
 
 If you'd like to replicate the automated deployment, add the following option to
 the `gcloud` command:
@@ -129,9 +115,37 @@ the `gcloud` command:
 --metadata-from-file=user-data=bin/user_data.sh
 ```
 
+#### Mounting Persistent Disks
+
+Before running the Ansible playbook, SSH into the VM and mount the attached
+persistent disks:
+
+**Note**: Skip the `mkfs.ext4` commands if reattaching existing disks with data.
+
+```bash
+# Mount NFS disk
+sudo mkdir -p /mnt/block_storage
+sudo mkfs.ext4 /dev/disk/by-id/google-galaxy-data
+sudo mount /dev/disk/by-id/google-galaxy-data /mnt/block_storage
+sudo chown ubuntu:ubuntu /mnt/block_storage
+
+# Mount PostgreSQL disk
+sudo mkdir -p /mnt/postgres_storage
+sudo mkfs.ext4 /dev/disk/by-id/google-galaxy-postgres-data
+sudo mount /dev/disk/by-id/google-galaxy-postgres-data /mnt/postgres_storage
+sudo chown ubuntu:ubuntu /mnt/postgres_storage
+
+# Add to fstab for persistence across reboots
+DISK_UUID=$(sudo blkid -s UUID -o value /dev/disk/by-id/google-galaxy-data)
+POSTGRES_UUID=$(sudo blkid -s UUID -o value /dev/disk/by-id/google-galaxy-postgres-data)
+echo "UUID=$DISK_UUID /mnt/block_storage ext4 defaults 0 2" | sudo tee -a /etc/fstab
+echo "UUID=$POSTGRES_UUID /mnt/postgres_storage ext4 defaults 0 2" | sudo tee -a /etc/fstab
+```
+
 #### Running the Playbook
 
-Create an inventory file for the VM:
+Once the disks are mounted, run the playbook from your local machine. Start by
+creating an inventory file for the VM:
 
 ```bash
 bin/inventory.sh --name gcp --key my-key.pem --ip 11.22.33.44 > inventories/vm.ini
@@ -146,18 +160,6 @@ ansible-playbook -i inventories/vm.ini playbook.yml --extra-vars "galaxy_user=ad
 
 Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
 (typically ~6 minutes).
-
-### Monitoring Deployment
-
-After launching, you can ssh into the VM to monitor the deployment progress:
-
-```bash
-# Watch cloud-init output
-sudo tail -n +1 -f /var/log/cloud-init-output.log
-
-# Monitor deployment logs
-sudo journalctl -f -u cloud-final
-```
 
 ### GCP Batch Job Runner
 

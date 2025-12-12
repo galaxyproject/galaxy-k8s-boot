@@ -62,6 +62,15 @@
     mode: '0755'
   become: true
 
+- name: Create /mnt/postgres_storage directory
+  ansible.builtin.file:
+    path: /mnt/postgres_storage
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+  become: true
+
 - name: Add KUBECONFIG to ubuntu user's .bashrc
   ansible.builtin.lineinfile:
     path: /home/ubuntu/.bashrc

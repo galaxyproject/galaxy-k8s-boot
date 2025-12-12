@@ -52,6 +52,10 @@ cluster_hostname: galaxy
 cinder_csi_version: "2.31.2"
 block_storage_disk_path: /mnt/block_storage
 
+# PostgreSQL Storage Configuration
+postgres_storage_disk_path: /mnt/postgres_storage
+setup_postgres_storage: true
+
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
 
