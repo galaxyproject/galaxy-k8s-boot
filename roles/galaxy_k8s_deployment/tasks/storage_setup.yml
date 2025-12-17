@@ -13,3 +13,11 @@
       path: block_storage_storageclass.yml.j2
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
+
+- name: Render the postgres storage class
+  kubernetes.core.k8s:
+    template:
+      path: postgres_storage_class.yaml.j2
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+  when: setup_postgres_storage | bool
