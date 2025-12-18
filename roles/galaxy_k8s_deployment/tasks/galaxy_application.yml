@@ -29,6 +29,41 @@
     kubeconfig: "{{ kubeconfig_path }}"
 
 # ============================================================================
+# Galaxy PVC Restoration
+# ============================================================================
+- name: Attempt Galaxy PVC restoration
+  block:
+    - name: Include Galaxy PVC restoration tasks
+      ansible.builtin.include_tasks: restore_galaxy_pvc.yml
+
+    - name: Set Galaxy Helm values for restore mode
+      set_fact:
+        galaxy_helm_extra_sets:
+          - value: "galaxy.persistence.existingClaim=galaxy-galaxy-pvc"
+            value_type: string
+          - value: "galaxy.persistence.storageClass="
+            value_type: string
+
+  rescue:
+    - name: Log restoration failure
+      debug:
+        msg: |
+          WARNING: Galaxy PVC restoration failed. Falling back to fresh deployment.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+    - name: Clear restore variables to trigger fresh deployment
+      set_fact:
+        restore_galaxy_pvc_uuid: ""
+        galaxy_helm_extra_sets: []
+
+  when: restore_galaxy_pvc_uuid != ""
+
+- name: Set Galaxy Helm values for fresh deployment
+  set_fact:
+    galaxy_helm_extra_sets: []
+  when: restore_galaxy_pvc_uuid == ""
+
+# ============================================================================
 # GCP Batch: NFS Server Configuration
 # ============================================================================
 # RKE2 without a cloud controller doesn't provision LoadBalancer external IPs.
@@ -111,6 +146,7 @@
     update_repo_cache: true
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
     values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) }}"
+    set_values: "{{ galaxy_helm_extra_sets | default([]) }}"
   vars:
     _helm_values_base:
       persistence:

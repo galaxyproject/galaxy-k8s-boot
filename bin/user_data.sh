@@ -99,9 +99,17 @@ runcmd:
     echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_LIST}"
     echo "[`date`] - Git Repository: ${GIT_REPO}"
     echo "[`date`] - Git Branch: ${GIT_BRANCH}"
+
+    # Add restore_galaxy_pvc_uuid if provided
+    RESTORE_EXTRA_VAR=""
+    if [ -n "${RESTORE_GALAXY_PVC_UUID}" ]; then
+        RESTORE_EXTRA_VAR="--extra-vars \"restore_galaxy_pvc_uuid=${RESTORE_GALAXY_PVC_UUID}\""
+        echo "[`date`] - Restoring Galaxy PVC with UUID: ${RESTORE_GALAXY_PVC_UUID}"
+    fi
+
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "galaxy_chart_version=${GALAXY_CHART_VERSION}" --extra-vars "galaxy_deps_version=${GALAXY_DEPS_VERSION}" --extra-vars "galaxy_values_files=${GALAXY_VALUES_FILES_JSON}" playbook.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "galaxy_chart_version=${GALAXY_CHART_VERSION}" --extra-vars "galaxy_deps_version=${GALAXY_DEPS_VERSION}" --extra-vars "galaxy_values_files=${GALAXY_VALUES_FILES_JSON}" ${RESTORE_EXTRA_VAR} playbook.yml
 
     echo "[`date`] - User data script completed."
     '

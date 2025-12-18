@@ -41,11 +41,10 @@ helm_repositories:
 
 # NFS Storage Configuration
 nfs_version: "1.8.0"
-nfs_persistence_storage_class: blockstorage
 nfs_size: "25Gi"
 nfs_default: false
 nfs_allow_expansion: true
-nfs_reclaim: Delete
+nfs_reclaim: Retain
 
 # Kubernetes Storage Configuration
 cluster_hostname: galaxy
@@ -79,6 +78,12 @@ galaxy_user: "default-user@galaxyproject.org"
 galaxy_api_key: ""
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4
+
+# Galaxy PVC Restore Configuration
+# When this value is provided, the playbook will attempt to restore
+# the Galaxy PVC pointing to existing data on the NFS server.
+# The PVC name is always "galaxy-galaxy-pvc" (from Helm release name "galaxy").
+restore_galaxy_pvc_uuid: ""     # e.g., "57681430-eb8f-460f-9eae-294e061c579e"
 
 # GCP Batch Configuration
 # Set enable_gcp_batch=true to configure Galaxy for GCP Batch job runner

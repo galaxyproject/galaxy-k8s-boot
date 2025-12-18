@@ -92,11 +92,10 @@ rke2_debug: false                          # Enable debug mode
 
 ```yaml
 nfs_version: "1.8.0"                       # Ganesha NFS chart version
-nfs_persistence_storage_class: blockstorage
 nfs_size: "25Gi"                           # NFS backing storage size
 nfs_default: false                         # Set as default storage class
 nfs_allow_expansion: true
-nfs_reclaim: Delete
+nfs_reclaim: Retain
 ```
 
 ### Ingress Configuration
@@ -109,7 +108,7 @@ ingress_version: "4.13.2"                  # NGINX ingress chart version
 
 ```yaml
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.5.0"              # Galaxy chart version
+galaxy_chart_version: "6.6.0"              # Galaxy chart version
 galaxy_deps_version: "1.1.1"               # Galaxy dependencies version
 galaxy_values_file: "values/values.yml"    # Path to Galaxy values file
 galaxy_persistence_size: "20Gi"            # Galaxy data volume size

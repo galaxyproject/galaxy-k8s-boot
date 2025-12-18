@@ -95,7 +95,8 @@ gcloud compute instances create ea-rke2-c \
 
 **Note**: Both disks use `auto-delete=no` to persist after VM deletion.
 
-For attaching existing disks instead, use multiple `--disk` flags:
+For attaching existing disks instead of `--create-disk` options, use multiple
+`--disk` flags:
 ```bash
 --disk=name=existing-nfs-disk,device-name=galaxy-data,mode=rw \
 --disk=name=existing-postgres-disk,device-name=galaxy-postgres-data,mode=rw
@@ -105,8 +106,7 @@ For attaching existing disks instead, use multiple `--disk` flags:
 > **Note:** Reattaching existing disks preserves the data on disk, but CNPG will
 > create a new PostgreSQL cluster each time this playbook is run, effectively
 > resulting in a new, empty Galaxy instance. CNPG recovery/restore functionality
-> will be addressed in future releases. The NFS provisioner will currently also
-> create new PVCs on each deployment.
+> will be addressed in future releases.
 
 If you'd like to replicate the automated deployment, add the following option to
 the `gcloud` command:
@@ -156,6 +156,12 @@ ways to run the playbook.
 
 ```bash
 ansible-playbook -i inventories/vm.ini playbook.yml --extra-vars "galaxy_user=admin@email.com"
+```
+
+If reattaching existing disks and restoring Galaxy data, include the following variable:
+
+```bash
+--extra-vars "restore_galaxy_pvc_uuid=57681430-eb8f-460f-9eae-294e061c579e"
 ```
 
 Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
@@ -310,17 +316,21 @@ ansible-playbook -i inventories/vm.ini playbook.yml \
 ## Deleting the VM
 
 > [!CAUTION]
-> **Note:** Redeploying an instance does not currently work so this
-> bit is left as a reminder of how to do this once the issue is fixed. If you
-> will want to redeploy an existing instance (ie, keep the data), before
-> deleting it, make sure to record the ID of the Galaxy PVC. You can find it by
-> running:
-> ```bash
-> kubectl get pvc -n galaxy
-> ```
+> **Note:** Redeploying an instance does not currently work because of CNPG not
+> able to restart. This will be addressed in future releases. Instructions below
+> are intended to capture how persistence will work in the future.
 
-Before deleting the VM, uninstall the Galaxy Helm chart to ensure all resources
-are properly cleaned up:
+Before deleting the VM, if you will want to preserve the Galaxy data, record the
+PVC UUID for Galaxy. You can use the following command to get the UUID:
+
+```bash
+kubectl get pv -o jsonpath='{range .items[?(@.spec.claimRef.name=="galaxy-galaxy-pvc")]}{.metadata.name}{"\n"}{end}'
+
+# Example output: pvc-57681430-eb8f-460f-9eae-294e061c579e
+# Record the UUID part: 57681430-eb8f-460f-9eae-294e061c579e
+```
+
+Uninstall the Galaxy Helm chart to ensure all resources are properly cleaned up:
 
 ```bash
 helm uninstall -n galaxy galaxy --wait

@@ -18,6 +18,7 @@ MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
 MACHINE_TYPE="e2-standard-4"
 PROJECT="anvil-and-terra-development"
 ZONE="us-east4-c"
+RESTORE_GALAXY_PVC_UUID=""
 
 # Parse command line arguments
 DISK_NAME=""
@@ -52,6 +53,7 @@ Options:
   --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
   --postgres-disk DISK_NAME         Name of PostgreSQL disk (default: galaxy-postgres-INSTANCE_NAME)
   --postgres-disk-size SIZE         Size of PostgreSQL disk (default: $POSTGRES_DISK_SIZE)
+  --restore-galaxy-pvc-uuid UUID    Restore Galaxy PVC from existing NFS data (e.g., "57681430-eb8f-460f-9eae-294e061c579e")
   -h, --help, help                  Show this help message
 
 Examples:
@@ -75,6 +77,9 @@ Examples:
   $0 -k "ssh-rsa AAAAB3..." --values values/values.yml --values values/dev.yml --values values/v25.0.2.yml my-galaxy-vm
   # Launch VM with custom git repository and branch
   $0 -k "ssh-rsa AAAAB3..." -g "https://github.com/username/galaxy-k8s-boot.git" -b "feature-branch" my-galaxy-vm
+
+  # Restore Galaxy PVC from previous deployment (reuses existing data)
+  $0 -k "ssh-rsa AAAAB3..." -d galaxy-data-original --restore-galaxy-pvc-uuid "57681430-eb8f-460f-9eae-294e061c579e" my-galaxy-vm
 
 EOF
 }
@@ -142,6 +147,10 @@ while [[ $# -gt 0 ]]; do
             GALAXY_DEPS_VERSION="$2"
             shift 2
             ;;
+        --restore-galaxy-pvc-uuid)
+            RESTORE_GALAXY_PVC_UUID="$2"
+            shift 2
+            ;;
         -h|--help|help)
             usage
             exit 0
@@ -207,6 +216,10 @@ echo "Galaxy Deps Version: $GALAXY_DEPS_VERSION"
 echo "Galaxy Values Files: ${GALAXY_VALUES_FILES[@]}"
 echo "Git Repository: $GIT_REPO"
 echo "Git Branch: $GIT_BRANCH"
+
+if [ -n "$RESTORE_GALAXY_PVC_UUID" ]; then
+    echo "Restore Galaxy PVC UUID: $RESTORE_GALAXY_PVC_UUID"
+fi
 
 if [ "$EPHEMERAL_ONLY" = false ]; then
     echo "NFS Disk Name: $DISK_NAME"
@@ -351,6 +364,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_CHART_VERSION="${GALAXY_CHART_VERSION}"
     GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
+    RESTORE_GALAXY_PVC_UUID="${RESTORE_GALAXY_PVC_UUID}"
 EOF
 
 cat >> "$TEMP_USER_DATA" << 'EOF'
