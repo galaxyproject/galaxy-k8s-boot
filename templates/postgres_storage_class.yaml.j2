@@ -87,7 +87,7 @@ metadata:
   name: postgres-storage
 provisioner: rancher.io/postgres-path
 volumeBindingMode: WaitForFirstConsumer
-reclaimPolicy: Delete
+reclaimPolicy: Retain
 ---
 kind: ConfigMap
 apiVersion: v1
