@@ -72,8 +72,9 @@
 # Step 2: Auto-detect if no explicit UUID but persistent data reuse is enabled
 - name: Check for existing Galaxy NFS exports
   shell: |
+    # Note: glob must be expanded inside container, so we use sh -c
     for dir in $(kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
-      ls -d /export/pvc-* 2>/dev/null); do
+      sh -c 'ls -d /export/pvc-* 2>/dev/null'); do
       # Check if this looks like a Galaxy data directory (has objects/ subdirectory)
       if kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
         test -d "$dir/objects" 2>/dev/null; then
