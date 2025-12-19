@@ -21,3 +21,41 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
   when: setup_postgres_storage | bool
+
+# ============================================================================
+# cert-manager Installation (Required for CNPG skip-initdb plugin)
+# ============================================================================
+- name: Install cert-manager for CNPG plugin TLS certificates
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition: "{{ lookup('url', 'https://github.com/cert-manager/cert-manager/releases/download/' + cert_manager_version + '/cert-manager.yaml', split_lines=false) | from_yaml_all | list }}"
+  when: setup_cert_manager | default(false) | bool
+
+- name: Wait for cert-manager deployment to be available
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: cert-manager
+    namespace: cert-manager
+    kubeconfig: "{{ kubeconfig_path }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 300
+  when: setup_cert_manager | default(false) | bool
+
+- name: Wait for cert-manager-webhook deployment to be available
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: cert-manager-webhook
+    namespace: cert-manager
+    kubeconfig: "{{ kubeconfig_path }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 300
+  when: setup_cert_manager | default(false) | bool

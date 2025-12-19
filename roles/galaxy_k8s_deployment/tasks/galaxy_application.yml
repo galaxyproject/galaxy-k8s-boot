@@ -13,6 +13,33 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
+# ============================================================================
+# CNPG Skip-Initdb Plugin (for PostgreSQL data reuse)
+# ============================================================================
+# IMPORTANT: Plugin must be deployed to same namespace as CNPG operator (galaxy-deps)
+# See docs/CNPG_SKIP_INITDB_INTEGRATION.md for details
+- name: Deploy CNPG skip-initdb plugin for PostgreSQL data reuse
+  kubernetes.core.k8s:
+    template:
+      path: cnpg_skip_initdb_plugin.yaml.j2
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+  when: cnpg_skip_initdb_enabled | default(false) | bool
+
+- name: Wait for skip-initdb plugin deployment to be available
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: skip-initdb
+    namespace: "{{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 120
+  when: cnpg_skip_initdb_enabled | default(false) | bool
+
 - name: Helm install galaxy-deps
   kubernetes.core.helm:
     name: galaxy-deps
@@ -29,10 +56,61 @@
     kubeconfig: "{{ kubeconfig_path }}"
 
 # ============================================================================
-# Galaxy PVC Restoration
+# Galaxy PVC Detection and Restoration
 # ============================================================================
+# Priority order:
+# 1. If restore_galaxy_pvc_uuid is explicitly provided, use it
+# 2. Else if enable_persistent_data_reuse, auto-detect from NFS exports
+# 3. If found, create static PV/PVC and set existingClaim
+
+# Step 1: Use explicit UUID if provided
+- name: Set restore UUID from explicit parameter
+  set_fact:
+    detected_galaxy_pvc_uuid: "{{ restore_galaxy_pvc_uuid }}"
+  when: restore_galaxy_pvc_uuid | default('') != ''
+
+# Step 2: Auto-detect if no explicit UUID but persistent data reuse is enabled
+- name: Check for existing Galaxy NFS exports
+  shell: |
+    for dir in $(kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+      ls -d /export/pvc-* 2>/dev/null); do
+      # Check if this looks like a Galaxy data directory (has objects/ subdirectory)
+      if kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+        test -d "$dir/objects" 2>/dev/null; then
+        # Extract UUID from path: /export/pvc-<uuid>
+        basename "$dir" | sed 's/^pvc-//'
+        exit 0
+      fi
+    done
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: auto_detected_uuid
+  ignore_errors: true
+  when:
+    - restore_galaxy_pvc_uuid | default('') == ''
+    - enable_persistent_data_reuse | default(true) | bool
+
+- name: Set restore UUID from auto-detection
+  set_fact:
+    detected_galaxy_pvc_uuid: "{{ auto_detected_uuid.stdout | trim }}"
+  when:
+    - restore_galaxy_pvc_uuid | default('') == ''
+    - enable_persistent_data_reuse | default(true) | bool
+    - auto_detected_uuid.stdout is defined
+    - auto_detected_uuid.stdout | trim != ''
+
+- name: Display detected Galaxy PVC UUID
+  debug:
+    msg: "Detected existing Galaxy PVC UUID: {{ detected_galaxy_pvc_uuid }}"
+  when: detected_galaxy_pvc_uuid is defined and detected_galaxy_pvc_uuid != ''
+
+# Step 3: Perform restoration if UUID found (explicit or auto-detected)
 - name: Attempt Galaxy PVC restoration
   block:
+    - name: Set restore_galaxy_pvc_uuid for include
+      set_fact:
+        restore_galaxy_pvc_uuid: "{{ detected_galaxy_pvc_uuid }}"
+
     - name: Include Galaxy PVC restoration tasks
       ansible.builtin.include_tasks: restore_galaxy_pvc.yml
 
@@ -53,15 +131,15 @@
 
     - name: Clear restore variables to trigger fresh deployment
       set_fact:
-        restore_galaxy_pvc_uuid: ""
+        detected_galaxy_pvc_uuid: ""
         galaxy_helm_extra_sets: []
 
-  when: restore_galaxy_pvc_uuid != ""
+  when: detected_galaxy_pvc_uuid | default('') != ''
 
 - name: Set Galaxy Helm values for fresh deployment
   set_fact:
     galaxy_helm_extra_sets: []
-  when: restore_galaxy_pvc_uuid == ""
+  when: detected_galaxy_pvc_uuid | default('') == ''
 
 # ============================================================================
 # GCP Batch: NFS Server Configuration
@@ -145,7 +223,7 @@
     kubeconfig: "{{ kubeconfig_path }}"
     update_repo_cache: true
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (cnpg_skip_initdb_enabled | default(false) | bool) else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) }}"
   vars:
     _helm_values_base:
@@ -172,6 +250,11 @@
           runners:
             gcp_batch:
               nfs_server: "{{ nfs_server }}"
+    _helm_values_cnpg_plugin:
+      postgresql:
+        cluster:
+          plugins:
+            - name: "{{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}"
 
 # ============================================================================
 # GCP Batch: NFS Export Path Detection
@@ -264,3 +347,116 @@
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
+
+# ============================================================================
+# Persistent Data Reuse: RabbitMQ Credential Synchronization
+# ============================================================================
+# When reusing persistent disks, RabbitMQ may have different credentials than
+# what the new Kubernetes secret generated. This syncs the credentials.
+- name: Wait for RabbitMQ to be ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    name: galaxy-rabbitmq-server-server-0
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+    wait: true
+    wait_condition:
+      type: Ready
+      status: "True"
+    wait_timeout: 300
+  when: enable_persistent_data_reuse | default(true) | bool
+
+- name: Get expected RabbitMQ credentials from secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: galaxy-rabbitmq-server-default-user
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: rabbitmq_secret
+  when: enable_persistent_data_reuse | default(true) | bool
+
+- name: Decode expected RabbitMQ username
+  set_fact:
+    expected_rabbitmq_user: "{{ rabbitmq_secret.resources[0].data.username | b64decode }}"
+    expected_rabbitmq_pass: "{{ rabbitmq_secret.resources[0].data.password | b64decode }}"
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - rabbitmq_secret.resources | length > 0
+
+- name: Check existing RabbitMQ users
+  shell: |
+    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- rabbitmqctl list_users --formatter json
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: rabbitmq_users_json
+  ignore_errors: true
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - expected_rabbitmq_user is defined
+
+- name: Parse RabbitMQ users
+  set_fact:
+    rabbitmq_existing_users: "{{ rabbitmq_users_json.stdout | from_json | map(attribute='user') | list }}"
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - rabbitmq_users_json.stdout is defined
+    - rabbitmq_users_json.stdout != ""
+    - rabbitmq_users_json.rc == 0
+
+- name: Check if expected user exists in RabbitMQ
+  set_fact:
+    rabbitmq_user_exists: "{{ expected_rabbitmq_user in rabbitmq_existing_users }}"
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - rabbitmq_existing_users is defined
+    - expected_rabbitmq_user is defined
+
+- name: Display RabbitMQ credential status
+  debug:
+    msg: "RabbitMQ expected user '{{ expected_rabbitmq_user }}' exists: {{ rabbitmq_user_exists | default(false) }}"
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - expected_rabbitmq_user is defined
+
+- name: Create expected RabbitMQ user (credential sync)
+  shell: |
+    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
+      rabbitmqctl add_user '{{ expected_rabbitmq_user }}' '{{ expected_rabbitmq_pass }}'
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - rabbitmq_user_exists is defined
+    - not rabbitmq_user_exists
+
+- name: Set administrator tag for new RabbitMQ user
+  shell: |
+    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
+      rabbitmqctl set_user_tags '{{ expected_rabbitmq_user }}' administrator
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - rabbitmq_user_exists is defined
+    - not rabbitmq_user_exists
+
+- name: Set permissions for new RabbitMQ user
+  shell: |
+    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
+      rabbitmqctl set_permissions -p / '{{ expected_rabbitmq_user }}' '.*' '.*' '.*'
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - rabbitmq_user_exists is defined
+    - not rabbitmq_user_exists
+
+- name: Display RabbitMQ credential sync completed
+  debug:
+    msg: "Created RabbitMQ user '{{ expected_rabbitmq_user }}' with administrator permissions"
+  when:
+    - enable_persistent_data_reuse | default(true) | bool
+    - rabbitmq_user_exists is defined
+    - not rabbitmq_user_exists

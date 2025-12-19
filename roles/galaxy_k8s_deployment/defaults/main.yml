@@ -46,6 +46,12 @@ nfs_default: false
 nfs_allow_expansion: true
 nfs_reclaim: Retain
 
+# NFS provisioner identifiers (used for persistent data reuse detection)
+nfs_provisioner_namespace: nfs-provisioner
+nfs_provisioner_release_name: nfs-provisioner
+nfs_provisioner_pod_name: "{{ nfs_provisioner_release_name }}-nfs-server-provisioner-0"
+nfs_provisioner_service_name: "{{ nfs_provisioner_release_name }}-nfs-server-provisioner"
+
 # Kubernetes Storage Configuration
 cluster_hostname: galaxy
 cinder_csi_version: "2.31.2"
@@ -54,6 +60,20 @@ block_storage_disk_path: /mnt/block_storage
 # PostgreSQL Storage Configuration
 postgres_storage_disk_path: /mnt/postgres_storage
 setup_postgres_storage: true
+
+# cert-manager Configuration
+# Required for CNPG skip-initdb plugin TLS certificates
+setup_cert_manager: true
+cert_manager_version: "v1.14.0"
+
+# CNPG Skip-Initdb Plugin Configuration
+# Enable this to allow PostgreSQL to reuse existing data directories
+# Requires: cert-manager installed in the cluster
+cnpg_skip_initdb_enabled: true
+cnpg_skip_initdb_image: "docker.io/ksuderman/cnpg-i-skip-initdb:latest"
+# IMPORTANT: Plugin must be deployed in same namespace as CNPG operator (galaxy-deps)
+cnpg_skip_initdb_namespace: "galaxy-deps"
+cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
 
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
@@ -79,9 +99,14 @@ galaxy_api_key: ""
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4
 
+# Persistent Data Reuse Configuration
+# Master toggle for all persistent data features (NFS export detection, RabbitMQ sync)
+enable_persistent_data_reuse: true
+
 # Galaxy PVC Restore Configuration
 # When this value is provided, the playbook will attempt to restore
 # the Galaxy PVC pointing to existing data on the NFS server.
+# If empty and enable_persistent_data_reuse is true, auto-detection will be attempted.
 # The PVC name is always "galaxy-galaxy-pvc" (from Helm release name "galaxy").
 restore_galaxy_pvc_uuid: ""     # e.g., "57681430-eb8f-460f-9eae-294e061c579e"
 
