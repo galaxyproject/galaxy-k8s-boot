@@ -15,7 +15,7 @@ GALAXY_DEPS_VERSION="1.1.1"
 GIT_BRANCH="master"
 GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
 MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
-MACHINE_TYPE="e2-standard-4"
+MACHINE_TYPE="e2-standard-8"
 PROJECT="anvil-and-terra-development"
 ZONE="us-east4-c"
 RESTORE_GALAXY_PVC_UUID=""
@@ -181,9 +181,13 @@ if [ -z "$INSTANCE_NAME" ]; then
 fi
 
 if [ "$EPHEMERAL_ONLY" = false ] && [ -z "$SSH_KEY" ]; then
-    echo "Error: SSH key is required"
-    usage
-    exit 1
+    if [[ -e ~/.ssh/id_rsa.pub ]] ; then
+        SSH_KEY=$(cat ~/.ssh/id_rsa.pub)
+    else
+      echo "Error: SSH key is required"
+      usage
+      exit 1
+    fi
 fi
 
 # Set default disk names if not provided
