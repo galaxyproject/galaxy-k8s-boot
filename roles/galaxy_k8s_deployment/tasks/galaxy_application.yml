@@ -6,6 +6,12 @@
     repo_url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
     state: present
 
+- name: Add ksuderman Helm repository
+  kubernetes.core.helm_repository:
+    name: ksuderman
+    repo_url: https://ksuderman.github.io/helm_charts
+    state: present
+
 - name: Create the galaxy-deps namespace
   kubernetes.core.k8s:
     kind: Namespace

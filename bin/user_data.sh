@@ -68,7 +68,7 @@ runcmd:
 
     # Get configuration from metadata with fallback defaults
     PV_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/persistent-volume-size" -H "Metadata-Flavor: Google" 2>/dev/null || echo "20Gi")
-    GALAXY_CHART_VERSION=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-chart-version" -H "Metadata-Flavor: Google" 2>/dev/null || echo "6.6.0")
+    GALAXY_CHART_VERSION=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-chart-version" -H "Metadata-Flavor: Google" 2>/dev/null || echo "6.7.0-dev")
     GALAXY_DEPS_VERSION=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-deps-version" -H "Metadata-Flavor: Google" 2>/dev/null || echo "1.1.1")
     GALAXY_VALUES_FILES_LIST=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/galaxy-values-files" -H "Metadata-Flavor: Google" 2>/dev/null || echo "values/values.yml")
 

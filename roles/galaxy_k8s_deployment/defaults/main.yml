@@ -38,6 +38,8 @@ helm_repositories:
     url: https://charts.helm.sh/stable
   - name: cloudve
     url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+  - name: ksuderman
+    url: https://ksuderman.github.io/helm_charts
 
 # NFS Storage Configuration
 nfs_version: "1.8.0"
@@ -79,8 +81,8 @@ cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
 
 # Galaxy Application Configuration
-galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.6.0"
+galaxy_chart: ksuderman/galaxy
+galaxy_chart_version: "6.7.0-dev"
 galaxy_deps_version: "1.1.1"
 
 # Galaxy Helm values files configuration
