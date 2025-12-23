@@ -19,6 +19,7 @@ MACHINE_TYPE="e2-standard-8"
 PROJECT="anvil-and-terra-development"
 ZONE="us-east4-c"
 RESTORE_GALAXY_PVC_UUID=""
+REUSE_EXISTING_DATA="false"
 
 # Parse command line arguments
 DISK_NAME=""
@@ -47,6 +48,7 @@ Options:
   -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
   -p, --project PROJECT             GCP project ID (default: $PROJECT)
   -r, --git-repo REPO               Git repository URL (default: $GIT_REPO)
+      --reuse-existing-data         Sets the reuse_existing_data flag to true (default $REUSE_EXISTING_DATA)
   -s, --disk-size SIZE              Size of NFS persistent disk (default: $DISK_SIZE)
   -z, --zone ZONE                   GCP zone (default: $ZONE)
   --galaxy-chart-version VERSION    Galaxy Helm chart version (default: $GALAXY_CHART_VERSION)
@@ -150,6 +152,10 @@ while [[ $# -gt 0 ]]; do
         --restore-galaxy-pvc-uuid)
             RESTORE_GALAXY_PVC_UUID="$2"
             shift 2
+            ;;
+        --reuse-existing-data)
+            REUSE_EXISTING_DATA="true"
+            shift
             ;;
         -h|--help|help)
             usage
@@ -369,6 +375,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
     RESTORE_GALAXY_PVC_UUID="${RESTORE_GALAXY_PVC_UUID}"
+    REUSE_EXISTING_DATA="${REUSE_EXISTING_DATA}"
 EOF
 
 cat >> "$TEMP_USER_DATA" << 'EOF'
@@ -388,6 +395,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     galaxy_db_password="gxy-db-password"
     galaxy_user="dev@galaxyproject.org"
     galaxy_api_key="galaxypassword"
+    reuse_existing_data="$REUSE_EXISTING_DATA"
     INVEOF
 
     echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
