@@ -67,18 +67,29 @@ cnpg_skip_initdb_namespace: "galaxy-deps"
 
 # Plugin name - must match what the plugin reports (default shown)
 cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
+
+# IMPORTANT: Set to true when relaunching with existing persistent disks
+# This triggers the plugin to skip database initialization
+reuse_existing_data: false
 ```
 
-### Example Deployment Command
+### Example Deployment Commands
 
-With default settings, the plugin is automatically enabled. You only need to pass extra-vars if you want to override the defaults:
-
+**Fresh installation** (default behavior - initdb runs normally):
 ```bash
-# Standard deployment (plugin enabled by default)
 ansible-playbook -i inventories/my-server.ini playbook.yml \
   --extra-vars "galaxy_user=admin@example.com"
+```
 
-# To explicitly disable the plugin
+**Relaunch with existing data** (skip initdb, reuse existing PostgreSQL data):
+```bash
+ansible-playbook -i inventories/my-server.ini playbook.yml \
+  --extra-vars "galaxy_user=admin@example.com" \
+  --extra-vars "reuse_existing_data=true"
+```
+
+**Disable the plugin entirely**:
+```bash
 ansible-playbook -i inventories/my-server.ini playbook.yml \
   --extra-vars "cnpg_skip_initdb_enabled=false" \
   --extra-vars "galaxy_user=admin@example.com"
@@ -104,13 +115,16 @@ This ensures the new PVC points to existing PostgreSQL data.
 
 ### CNPG Plugin Behavior
 
-The skip-initdb plugin intercepts CNPG's bootstrap process:
+The skip-initdb plugin intercepts CNPG's bootstrap process using an **annotation-based trigger**:
 
 1. Plugin deploys to `galaxy-deps` namespace (same as CNPG operator)
 2. Registers with CNPG via service annotations
-3. When CNPG creates a new cluster, it calls the plugin
-4. Plugin instructs CNPG to skip `initdb` if data already exists
-5. PostgreSQL starts using the existing data directory
+3. When CNPG creates the initdb Job, the plugin intercepts it
+4. Plugin checks if the Cluster CR has the annotation `cnpg.io/skip-initdb: "true"`
+5. **If annotation is present**: Plugin replaces the initdb Job with a no-op, allowing PostgreSQL to start with existing data
+6. **If annotation is absent**: Plugin allows normal initdb to proceed (fresh install)
+
+The annotation is automatically set when you pass `reuse_existing_data=true` to the Ansible playbook.
 
 **IMPORTANT**: The plugin MUST be deployed to the same namespace as the CNPG operator. In Galaxy deployments, the CNPG operator runs in the `galaxy-deps` namespace (installed by the galaxy-deps Helm chart). Deploying the plugin to a different namespace (like `cnpg-system`) will result in CNPG not discovering the plugin.
 
