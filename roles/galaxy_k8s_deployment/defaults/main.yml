@@ -77,6 +77,11 @@ cnpg_skip_initdb_image: "docker.io/ksuderman/cnpg-i-skip-initdb:latest"
 cnpg_skip_initdb_namespace: "galaxy-deps"
 cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
 
+# Data Persistence Configuration
+# Set to true when relaunching an instance with existing persistent disks
+# This tells the CNPG plugin to skip database initialization and reuse existing data
+reuse_existing_data: false
+
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
 

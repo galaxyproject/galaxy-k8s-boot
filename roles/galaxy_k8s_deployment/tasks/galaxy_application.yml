@@ -230,7 +230,7 @@
     kubeconfig: "{{ kubeconfig_path }}"
     update_repo_cache: true
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (cnpg_skip_initdb_enabled | default(false) | bool) else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (cnpg_skip_initdb_enabled | default(false) | bool) else {}, recursive=True) | combine(_helm_values_skip_initdb if (reuse_existing_data | default(false) | bool) else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) }}"
   vars:
     _helm_values_base:
@@ -262,6 +262,11 @@
         cluster:
           plugins:
             - name: "{{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}"
+    _helm_values_skip_initdb:
+      postgresql:
+        cluster:
+          annotations:
+            cnpg.io/skip-initdb: "true"
 
 # ============================================================================
 # GCP Batch: NFS Export Path Detection
