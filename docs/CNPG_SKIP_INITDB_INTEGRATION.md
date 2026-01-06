@@ -95,6 +95,22 @@ ansible-playbook -i inventories/my-server.ini playbook.yml \
   --extra-vars "galaxy_user=admin@example.com"
 ```
 
+### Using the VM Launch Script
+
+When using the `bin/launch_vm.sh` script for GCP deployments, use the `--reuse-existing-data` flag:
+
+**Fresh installation**:
+```bash
+bin/launch_vm.sh my-galaxy-vm
+```
+
+**Relaunch with existing data**:
+```bash
+bin/launch_vm.sh my-galaxy-vm --reuse-existing-data
+```
+
+The launch script automatically passes `reuse_existing_data=true` to the Ansible playbook via cloud-init.
+
 ## How It Works
 
 ### Storage Provisioner Directory Reuse
