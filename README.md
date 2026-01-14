@@ -78,10 +78,10 @@ pip install -r requirements.txt
 Use the `gcloud` command to create a VM instance.
 
 ```bash
-gcloud compute instances create ea-rke2-c \
+gcloud compute instances create ea-fresh \
   --project=anvil-and-terra-development \
   --zone=us-east4-c \
-  --machine-type=e2-standard-4 \
+  --machine-type=e2-standard-8 \
   --image=galaxy-k8s-boot-v2025-11-14 \
   --image-project=anvil-and-terra-development \
   --boot-disk-size=100GB \
@@ -99,7 +99,7 @@ For attaching existing disks instead of `--create-disk` options, use multiple
 `--disk` flags:
 ```bash
 --disk=name=existing-nfs-disk,device-name=galaxy-data,mode=rw \
---disk=name=existing-postgres-disk,device-name=galaxy-postgres-data,mode=rw
+--disk=name=existing-postgres-disk,device-name=galaxy-postgres-data,mode=rw \
 ```
 
 > [!CAUTION]
@@ -158,10 +158,14 @@ ways to run the playbook.
 ansible-playbook -i inventories/vm.ini playbook.yml --extra-vars "galaxy_user=admin@email.com"
 ```
 
-If reattaching existing disks and restoring Galaxy data, include the following variable:
+If reattaching existing disks and restoring Galaxy data, include the restoration variable (see [CNPG_SKIP_INITDB_INTEGRATION.md](docs/CNPG_SKIP_INITDB_INTEGRATION.md)):
 
 ```bash
---extra-vars "restore_galaxy_pvc_uuid=57681430-eb8f-460f-9eae-294e061c579e"
+# Auto-detect existing data
+--extra-vars "galaxy_restore_pvc_uuid=auto"
+
+# Or specify explicit PVC UUID
+--extra-vars "galaxy_restore_pvc_uuid=57681430-eb8f-460f-9eae-294e061c579e"
 ```
 
 Galaxy will be available at `http://INSTANCE_IP/` once deployment completes

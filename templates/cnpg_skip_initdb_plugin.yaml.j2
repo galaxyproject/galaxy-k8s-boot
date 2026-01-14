@@ -4,7 +4,7 @@
 #
 # Prerequisites:
 # - cert-manager must be installed
-# - Plugin image must be available (default: {{ cnpg_skip_initdb_image | default('docker.io/ksuderman/cnpg-i-skip-initdb:latest') }})
+# - Plugin image must be available
 #
 # IMPORTANT: The plugin must be deployed in the same namespace as the CNPG operator.
 # For Galaxy deployments, this is typically 'galaxy-deps'.
@@ -80,7 +80,7 @@ spec:
         app: skip-initdb
     spec:
       containers:
-      - image: {{ cnpg_skip_initdb_image | default('docker.io/ksuderman/cnpg-i-skip-initdb:latest') }}
+      - image: {{ cnpg_skip_initdb_image }}
         name: cnpg-i-skip-initdb
         ports:
         - containerPort: 9090

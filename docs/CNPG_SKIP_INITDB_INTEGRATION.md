@@ -31,85 +31,85 @@ kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-m
 
 The plugin image must be built and pushed to an accessible container registry.
 
-The default image is available at `docker.io/ksuderman/cnpg-i-skip-initdb:latest`.
+The default image is available at `quay.io/galaxyproject/cnpg-i-skip-initdb:0.1`.
 
 To build your own image:
 ```bash
 # Clone the plugin repository (if not already done)
-git clone https://github.com/ksuderman/cnpg-i-skip-initdb.git
+git clone https://github.com/CloudVE/cnpg-i-skip-initdb.git
 cd cnpg-i-skip-initdb
 
 # Build the image (use --platform for cross-platform builds on arm64 machines)
-docker build --platform linux/amd64 -t docker.io/ksuderman/cnpg-i-skip-initdb:latest .
+docker build --platform linux/amd64 -t quay.io/galaxyproject/cnpg-i-skip-initdb:0.1 .
 
 # Push to registry (requires authentication)
-docker push docker.io/ksuderman/cnpg-i-skip-initdb:latest
+docker push quay.io/galaxyproject/cnpg-i-skip-initdb:0.1
 ```
 
 ## Configuration
 
 ### Ansible Variables
 
-The following variables control CNPG plugin behavior. **By default, both cert-manager and the CNPG plugin are enabled** in `roles/galaxy_k8s_deployment/defaults/main.yml`:
+The following variable controls Galaxy restoration behavior:
 
 ```yaml
-# Enable cert-manager (required for CNPG plugin) - DEFAULT: true
-setup_cert_manager: true
+# Galaxy Restoration Control
+# Optional variable that controls restoration of both PVC and PostgreSQL database
+# Values:
+#   "" (empty/default) = Fresh installation with dynamic PVC provisioning
+#   "auto"             = Auto-detect existing PVC UUID from NFS exports and restore
+#   "<uuid>"           = Restore from specific PVC UUID (e.g., "57681430-eb8f-460f-9eae-294e061c579e")
+galaxy_restore_pvc_uuid: ""
 
-# Enable the CNPG skip-initdb plugin - DEFAULT: true
-cnpg_skip_initdb_enabled: true
-
-# Container image for the plugin (optional, has default)
-cnpg_skip_initdb_image: "docker.io/ksuderman/cnpg-i-skip-initdb:latest"
-
-# Plugin namespace - MUST match CNPG operator namespace (default: galaxy-deps)
+# CNPG plugin configuration (advanced - typically no need to change)
+cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
 cnpg_skip_initdb_namespace: "galaxy-deps"
-
-# Plugin name - must match what the plugin reports (default shown)
 cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
-
-# IMPORTANT: Set to true when relaunching with existing persistent disks
-# This triggers the plugin to skip database initialization
-reuse_existing_data: false
 ```
+
+**Note:** The CNPG skip-initdb plugin is automatically deployed when restoration is enabled.
+The plugin automatically detects existing PostgreSQL data and skips initialization if found.
 
 ### Example Deployment Commands
 
-**Fresh installation** (default behavior - initdb runs normally):
+**Fresh installation** (default behavior):
 ```bash
 ansible-playbook -i inventories/my-server.ini playbook.yml \
   --extra-vars "galaxy_user=admin@example.com"
 ```
 
-**Relaunch with existing data** (skip initdb, reuse existing PostgreSQL data):
+**Relaunch with auto-detection** (automatically finds and restores existing data):
 ```bash
 ansible-playbook -i inventories/my-server.ini playbook.yml \
   --extra-vars "galaxy_user=admin@example.com" \
-  --extra-vars "reuse_existing_data=true"
+  --extra-vars "galaxy_restore_pvc_uuid=auto"
 ```
 
-**Disable the plugin entirely**:
+**Relaunch with explicit UUID** (restore from specific PVC):
 ```bash
 ansible-playbook -i inventories/my-server.ini playbook.yml \
-  --extra-vars "cnpg_skip_initdb_enabled=false" \
-  --extra-vars "galaxy_user=admin@example.com"
+  --extra-vars "galaxy_user=admin@example.com" \
+  --extra-vars "galaxy_restore_pvc_uuid=57681430-eb8f-460f-9eae-294e061c579e"
 ```
 
 ### Using the VM Launch Script
 
-When using the `bin/launch_vm.sh` script for GCP deployments, use the `--reuse-existing-data` flag:
+When using the `bin/launch_vm.sh` script for GCP deployments:
 
 **Fresh installation**:
 ```bash
 bin/launch_vm.sh my-galaxy-vm
 ```
 
-**Relaunch with existing data**:
+**Auto-detect and restore**:
 ```bash
-bin/launch_vm.sh my-galaxy-vm --reuse-existing-data
+bin/launch_vm.sh my-galaxy-vm --restore-galaxy
 ```
 
-The launch script automatically passes `reuse_existing_data=true` to the Ansible playbook via cloud-init.
+**Restore from specific UUID**:
+```bash
+bin/launch_vm.sh my-galaxy-vm --restore-pvc-uuid 57681430-eb8f-460f-9eae-294e061c579e
+```
 
 ## How It Works
 
@@ -131,16 +131,15 @@ This ensures the new PVC points to existing PostgreSQL data.
 
 ### CNPG Plugin Behavior
 
-The skip-initdb plugin intercepts CNPG's bootstrap process using an **annotation-based trigger**:
+The skip-initdb plugin is deployed automatically when restoration is enabled (`galaxy_restore_pvc_uuid` is set).
+The plugin uses **auto-detection**:
 
 1. Plugin deploys to `galaxy-deps` namespace (same as CNPG operator)
 2. Registers with CNPG via service annotations
-3. When CNPG creates the initdb Job, the plugin intercepts it
-4. Plugin checks if the Cluster CR has the annotation `cnpg.io/skip-initdb: "true"`
-5. **If annotation is present**: Plugin replaces the initdb Job with a no-op, allowing PostgreSQL to start with existing data
-6. **If annotation is absent**: Plugin allows normal initdb to proceed (fresh install)
-
-The annotation is automatically set when you pass `reuse_existing_data=true` to the Ansible playbook.
+3. When CNPG attempts to create the initdb Job, the plugin intercepts it
+4. Plugin checks if `$PGDATA` directory contains existing database files:
+   - **If PGDATA has database files**: Plugin replaces the initdb Job with a no-op, allowing PostgreSQL to start with existing data
+   - **If PGDATA is empty/missing**: Plugin allows normal initdb to proceed (graceful degradation)
 
 **IMPORTANT**: The plugin MUST be deployed to the same namespace as the CNPG operator. In Galaxy deployments, the CNPG operator runs in the `galaxy-deps` namespace (installed by the galaxy-deps Helm chart). Deploying the plugin to a different namespace (like `cnpg-system`) will result in CNPG not discovering the plugin.
 
@@ -166,6 +165,8 @@ The plugin is registered with CNPG through:
          - name: cnpg-i-skip-initdb.leonardoce.github.com
    ```
 
+The plugin is automatically included in the cluster spec when restoration is enabled.
+
 ## Files Modified
 
 | File | Purpose |
@@ -190,9 +191,6 @@ kubectl logs -n galaxy-deps -l app=skip-initdb
 
 # Verify certificates are created
 kubectl get certificates -n galaxy-deps
-
-# Verify plugin service has correct annotations
-kubectl get svc skip-initdb -n galaxy-deps -o yaml | grep -A10 annotations
 ```
 
 ### Check Storage Symlinks
@@ -220,7 +218,6 @@ kubectl describe clusters.postgresql.cnpg.io galaxy-postgres -n galaxy | grep -A
 1. **Plugin not found by CNPG**
    - **Most common cause**: Plugin deployed to wrong namespace. The plugin MUST be in `galaxy-deps` namespace (where CNPG operator runs), NOT in `cnpg-system` or other namespaces
    - Ensure cert-manager is running and certificates are created
-   - Check plugin service has correct annotations and labels
    - Verify plugin pod is running: `kubectl get pods -n galaxy-deps -l app=skip-initdb`
    - Check CNPG operator logs for plugin discovery: `kubectl logs -n galaxy-deps -l app.kubernetes.io/name=cloudnative-pg`
 
@@ -339,18 +336,27 @@ When RabbitMQ data is preserved across relaunches, credential mismatches can occ
 
 ### Configuration Variable
 
-All persistent data reuse features are controlled by:
+Galaxy restoration is controlled by a single variable:
 
 ```yaml
-# Enable automatic data reuse detection - DEFAULT: true
-enable_persistent_data_reuse: true
+# Control all restoration behavior with one variable
+galaxy_restore_pvc_uuid: ""
+# Values:
+#   "" (empty/default) = Fresh installation
+#   "auto"             = Auto-detect and restore
+#   "<uuid>"           = Restore from specific UUID
 ```
 
-See `SESSION_NOTES.md` for detailed documentation of these features.
+This variable controls:
+- Galaxy PVC restoration (NFS data)
+- PostgreSQL database restoration (CNPG plugin)
+- RabbitMQ credential synchronization
+
+When set to `"auto"` or a specific UUID, all persistent data features are automatically activated.
 
 ## References
 
 - [CNPG-I Plugin Interface](https://github.com/cloudnative-pg/cnpg-i)
 - [CloudNative-PG Documentation](https://cloudnative-pg.io/documentation/)
 - [cert-manager Documentation](https://cert-manager.io/docs/)
-- [Plugin Source Repository](https://github.com/ksuderman/cnpg-i-skip-initdb)
+- [Plugin Source Repository](https://github.com/CloudVE/cnpg-i-skip-initdb)

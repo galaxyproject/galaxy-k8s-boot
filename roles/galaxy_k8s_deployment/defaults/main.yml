@@ -72,21 +72,29 @@ cert_manager_version: "v1.14.0"
 # Enable this to allow PostgreSQL to reuse existing data directories
 # Requires: cert-manager installed in the cluster
 cnpg_skip_initdb_enabled: true
-cnpg_skip_initdb_image: "docker.io/ksuderman/cnpg-i-skip-initdb:latest"
+cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
 # IMPORTANT: Plugin must be deployed in same namespace as CNPG operator (galaxy-deps)
 cnpg_skip_initdb_namespace: "galaxy-deps"
 cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
 
-# Data Persistence Configuration
-# Set to true when relaunching an instance with existing persistent disks
-# This tells the CNPG plugin to skip database initialization and reuse existing data
-reuse_existing_data: false
+# Galaxy Restoration Control
+# Optional variable that controls restoration of both PVC and PostgreSQL database
+# Values:
+#   "" (empty/default) = Fresh installation with dynamic PVC provisioning
+#   "auto"             = Auto-detect existing PVC UUID from NFS exports and restore
+#   "<uuid>"           = Restore from specific PVC UUID (e.g., "57681430-eb8f-460f-9eae-294e061c579e")
+#
+# When restoration is enabled (auto or explicit UUID):
+#   - Creates static PV/PVC pointing to existing NFS data
+#   - Deploys CNPG skip-initdb plugin (auto-detects existing database)
+#   - Restores RabbitMQ credentials if needed
+galaxy_restore_pvc_uuid: ""
 
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
 
 # Galaxy Application Configuration
-galaxy_chart: ksuderman/galaxy
+galaxy_chart: cloudve/galaxy
 galaxy_chart_version: "6.7.0-dev"
 galaxy_deps_version: "1.1.1"
 
@@ -105,17 +113,6 @@ galaxy_user: "default-user@galaxyproject.org"
 galaxy_api_key: ""
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4
-
-# Persistent Data Reuse Configuration
-# Master toggle for all persistent data features (NFS export detection, RabbitMQ sync)
-enable_persistent_data_reuse: true
-
-# Galaxy PVC Restore Configuration
-# When this value is provided, the playbook will attempt to restore
-# the Galaxy PVC pointing to existing data on the NFS server.
-# If empty and enable_persistent_data_reuse is true, auto-detection will be attempted.
-# The PVC name is always "galaxy-galaxy-pvc" (from Helm release name "galaxy").
-restore_galaxy_pvc_uuid: ""     # e.g., "57681430-eb8f-460f-9eae-294e061c579e"
 
 # GCP Batch Configuration
 # Set enable_gcp_batch=true to configure Galaxy for GCP Batch job runner

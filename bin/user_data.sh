@@ -100,11 +100,11 @@ runcmd:
     echo "[`date`] - Git Repository: ${GIT_REPO}"
     echo "[`date`] - Git Branch: ${GIT_BRANCH}"
 
-    # Add restore_galaxy_pvc_uuid if provided
+    # Add galaxy_restore_pvc_uuid if provided
     RESTORE_EXTRA_VAR=""
-    if [ -n "${RESTORE_GALAXY_PVC_UUID}" ]; then
-        RESTORE_EXTRA_VAR="--extra-vars \"restore_galaxy_pvc_uuid=${RESTORE_GALAXY_PVC_UUID}\""
-        echo "[`date`] - Restoring Galaxy PVC with UUID: ${RESTORE_GALAXY_PVC_UUID}"
+    if [ -n "${GALAXY_RESTORE_PVC_UUID}" ]; then
+        RESTORE_EXTRA_VAR="--extra-vars \"galaxy_restore_pvc_uuid=${GALAXY_RESTORE_PVC_UUID}\""
+        echo "[`date`] - Galaxy Restore Mode: ${GALAXY_RESTORE_PVC_UUID}"
     fi
 
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."

@@ -138,8 +138,10 @@ data:
                 # Check if existing directory has data (more than just empty dir)
                 if [ "$(ls -A "${existingDir}" 2>/dev/null)" ]; then
                     echo "Found existing data directory: ${existingDir}"
-                    echo "Creating symlink: ${absolutePath} -> ${existingDir}"
+                    echo "Creating PVC symlink: ${absolutePath} -> ${existingDir}"
                     ln -s "${existingDir}" "${absolutePath}"
+                    echo "PVC symlink created successfully"
+                    # Note: pgdata symlink is created by Ansible BEFORE galaxy-deps installation
                     exit 0
                 fi
             fi

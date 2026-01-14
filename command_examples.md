@@ -11,6 +11,55 @@ ansible-playbook -i inventory playbook.yml \
   -e "galaxy_api_key=my-api-key"
 ```
 
+## Galaxy Restoration Examples
+
+### Fresh Installation (Default)
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "galaxy_user=admin@example.com"
+```
+
+### Auto-Detect and Restore
+
+Automatically find and restore from existing data:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "galaxy_user=admin@example.com" \
+  --extra-vars "galaxy_restore_pvc_uuid=auto"
+```
+
+### Restore from Specific PVC UUID
+
+Explicitly specify which PVC to restore:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "galaxy_user=admin@example.com" \
+  --extra-vars "galaxy_restore_pvc_uuid=57681430-eb8f-460f-9eae-294e061c579e"
+```
+
+### Using GCP Launch Script
+
+```bash
+# Fresh installation
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." my-galaxy-vm
+
+# Auto-detect and restore
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." --restore-galaxy my-galaxy-vm
+
+# Restore from specific UUID
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." --restore-pvc-uuid 57681430-eb8f-460f-9eae-294e061c579e my-galaxy-vm
+```
+
+**What gets restored:**
+- Galaxy NFS data (histories, datasets, job files)
+- PostgreSQL database (users, workflows, histories metadata)
+- RabbitMQ credentials
+
+See [CNPG_SKIP_INITDB_INTEGRATION.md](docs/CNPG_SKIP_INITDB_INTEGRATION.md) for details.
+
 ### playbook.yml
 
 Unified deployment playbook optimized for pre-prepared images:

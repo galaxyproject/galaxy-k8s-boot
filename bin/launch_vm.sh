@@ -18,8 +18,7 @@ MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
 MACHINE_TYPE="e2-standard-8"
 PROJECT="anvil-and-terra-development"
 ZONE="us-east4-c"
-RESTORE_GALAXY_PVC_UUID=""
-REUSE_EXISTING_DATA="false"
+GALAXY_RESTORE_PVC_UUID=""
 
 # Parse command line arguments
 DISK_NAME=""
@@ -48,14 +47,14 @@ Options:
   -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
   -p, --project PROJECT             GCP project ID (default: $PROJECT)
   -r, --git-repo REPO               Git repository URL (default: $GIT_REPO)
-      --reuse-existing-data         Sets the reuse_existing_data flag to true (default $REUSE_EXISTING_DATA)
   -s, --disk-size SIZE              Size of NFS persistent disk (default: $DISK_SIZE)
   -z, --zone ZONE                   GCP zone (default: $ZONE)
   --galaxy-chart-version VERSION    Galaxy Helm chart version (default: $GALAXY_CHART_VERSION)
   --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
   --postgres-disk DISK_NAME         Name of PostgreSQL disk (default: galaxy-postgres-INSTANCE_NAME)
   --postgres-disk-size SIZE         Size of PostgreSQL disk (default: $POSTGRES_DISK_SIZE)
-  --restore-galaxy-pvc-uuid UUID    Restore Galaxy PVC from existing NFS data (e.g., "57681430-eb8f-460f-9eae-294e061c579e")
+  --restore-galaxy                  Auto-detect and restore Galaxy from existing data
+  --restore-pvc-uuid UUID           Restore Galaxy from specific PVC UUID (e.g., "57681430-eb8f-460f-9eae-294e061c579e")
   -h, --help, help                  Show this help message
 
 Examples:
@@ -80,8 +79,11 @@ Examples:
   # Launch VM with custom git repository and branch
   $0 -k "ssh-rsa AAAAB3..." -g "https://github.com/username/galaxy-k8s-boot.git" -b "feature-branch" my-galaxy-vm
 
-  # Restore Galaxy PVC from previous deployment (reuses existing data)
-  $0 -k "ssh-rsa AAAAB3..." -d galaxy-data-original --restore-galaxy-pvc-uuid "57681430-eb8f-460f-9eae-294e061c579e" my-galaxy-vm
+  # Auto-detect and restore Galaxy from existing data
+  $0 -k "ssh-rsa AAAAB3..." --restore-galaxy my-galaxy-vm
+
+  # Restore Galaxy from specific PVC UUID
+  $0 -k "ssh-rsa AAAAB3..." --restore-pvc-uuid "57681430-eb8f-460f-9eae-294e061c579e" my-galaxy-vm
 
 EOF
 }
@@ -149,13 +151,13 @@ while [[ $# -gt 0 ]]; do
             GALAXY_DEPS_VERSION="$2"
             shift 2
             ;;
-        --restore-galaxy-pvc-uuid)
-            RESTORE_GALAXY_PVC_UUID="$2"
-            shift 2
-            ;;
-        --reuse-existing-data)
-            REUSE_EXISTING_DATA="true"
+        --restore-galaxy)
+            GALAXY_RESTORE_PVC_UUID="auto"
             shift
+            ;;
+        --restore-pvc-uuid)
+            GALAXY_RESTORE_PVC_UUID="$2"
+            shift 2
             ;;
         -h|--help|help)
             usage
@@ -227,8 +229,8 @@ echo "Galaxy Values Files: ${GALAXY_VALUES_FILES[@]}"
 echo "Git Repository: $GIT_REPO"
 echo "Git Branch: $GIT_BRANCH"
 
-if [ -n "$RESTORE_GALAXY_PVC_UUID" ]; then
-    echo "Restore Galaxy PVC UUID: $RESTORE_GALAXY_PVC_UUID"
+if [ -n "$GALAXY_RESTORE_PVC_UUID" ]; then
+    echo "Galaxy Restore Mode: $GALAXY_RESTORE_PVC_UUID"
 fi
 
 if [ "$EPHEMERAL_ONLY" = false ]; then
@@ -374,8 +376,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_CHART_VERSION="${GALAXY_CHART_VERSION}"
     GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
-    RESTORE_GALAXY_PVC_UUID="${RESTORE_GALAXY_PVC_UUID}"
-    REUSE_EXISTING_DATA="${REUSE_EXISTING_DATA}"
+    GALAXY_RESTORE_PVC_UUID="${GALAXY_RESTORE_PVC_UUID}"
 EOF
 
 cat >> "$TEMP_USER_DATA" << 'EOF'
@@ -395,7 +396,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     galaxy_db_password="gxy-db-password"
     galaxy_user="dev@galaxyproject.org"
     galaxy_api_key="galaxypassword"
-    reuse_existing_data="$REUSE_EXISTING_DATA"
+    galaxy_restore_pvc_uuid="$GALAXY_RESTORE_PVC_UUID"
     INVEOF
 
     echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
