@@ -58,7 +58,7 @@ bin/launch_vm.sh -k "ssh-rsa AAAAB3..." --restore-pvc-uuid 57681430-eb8f-460f-9e
 - PostgreSQL database (users, workflows, histories metadata)
 - RabbitMQ credentials
 
-See [CNPG_SKIP_INITDB_INTEGRATION.md](docs/CNPG_SKIP_INITDB_INTEGRATION.md) for details.
+See [docs/CNPG_database_restore.md](docs/CNPG_database_restore.md) for details.
 
 ### playbook.yml
 
@@ -106,7 +106,7 @@ rke2_token: "your-cluster-token"          # Always required for RKE2
 
 ```yaml
 # Galaxy Configuration
-galaxy_values_file: "values/custom.yml"   # Path to your values file
+galaxy_values_files: ["values/custom.yml"]   # Path to your values files
 galaxy_api_key: "your-api-key"            # Galaxy master API key
 galaxy_user: "admin@galaxy.org"           # Admin user email
 galaxy_persistence_size: "50Gi"           # Data volume size

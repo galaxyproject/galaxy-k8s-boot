@@ -25,23 +25,23 @@ This repo is divided into two main parts:
 The preferred way to deploy Galaxy is with a pre-built Ubuntu 24.04 image
 following the documentation below. The playbook can also run on a fresh Ubuntu
 24.04 VM, but it will take longer to complete as it needs to install all
-dependencies.
+dependencies. The documentation below covers the minimal steps. For more
+options, see the [Advanced Configuration](docs/advanced_configuration.md)
+documentation.
 
 ### Automated Deployment Directly on GCP
 
 The most hands-off way to deploy Galaxy is to launch a VM on GCP that runs the
-deployment playbook automatically on first boot. For this option, use the
-provided cloud-init launch script (located in `bin/user_data.sh`). Include the
-contents of the script in the VM's user data, which will install all necessary
-software by running the Ansible playbook and deploy Galaxy.
-
-For this option, paste the contents of `bin/launch_vm.sh` into the VM user data
-when launching the instance. Galaxy will be deployed automatically and should be
-available at `http://INSTANCE_IP/` in about 6 minutes.
+deployment playbook automatically on first boot. For this option, paste the
+contents of `bin/launch_vm.sh` into the VM user data when launching the
+instance. This will install all necessary software by running an Ansible
+playbook to deploy Galaxy. Galaxy should be available at `http://INSTANCE_IP/`
+in about 6 minutes.
 
 #### Monitoring Deployment
 
-After launching, you can ssh into the VM to monitor the deployment progress:
+After launching the VM, you can ssh into the VM to monitor the deployment
+progress:
 
 ```bash
 # Watch cloud-init output
@@ -55,13 +55,14 @@ sudo journalctl -f -u cloud-final
 
 One downside to the above method is that it makes it difficult to customize the
 deployment or rerun the playbook, which is useful during development. Instead,
-you can launch the VM manually and then run the playbook directly from your
-local machine.
+you can launch the VM without user data and then run the Ansible playbook from
+your local machine.
 
 > [!NOTE]
-> There is a `bin/launch_vm.sh` script that automates the steps for launching
-> the VM and running the playbook. Check out `bin/launch_vm.sh --help` for
-> details.
+> There is also `bin/launch_vm.sh` script that automates the steps for launching
+> the VM and running the playbook. This is often useful for scenarios where you
+> want to test Galaxy functionality or configuration changes. Check out
+> `bin/launch_vm.sh --help` for details.
 
 #### Prerequisites
 
@@ -127,19 +128,11 @@ persistent disks:
 sudo mkdir -p /mnt/block_storage
 sudo mkfs.ext4 /dev/disk/by-id/google-galaxy-data
 sudo mount /dev/disk/by-id/google-galaxy-data /mnt/block_storage
-sudo chown ubuntu:ubuntu /mnt/block_storage
 
 # Mount PostgreSQL disk
 sudo mkdir -p /mnt/postgres_storage
 sudo mkfs.ext4 /dev/disk/by-id/google-galaxy-postgres-data
 sudo mount /dev/disk/by-id/google-galaxy-postgres-data /mnt/postgres_storage
-sudo chown ubuntu:ubuntu /mnt/postgres_storage
-
-# Add to fstab for persistence across reboots
-DISK_UUID=$(sudo blkid -s UUID -o value /dev/disk/by-id/google-galaxy-data)
-POSTGRES_UUID=$(sudo blkid -s UUID -o value /dev/disk/by-id/google-galaxy-postgres-data)
-echo "UUID=$DISK_UUID /mnt/block_storage ext4 defaults 0 2" | sudo tee -a /etc/fstab
-echo "UUID=$POSTGRES_UUID /mnt/postgres_storage ext4 defaults 0 2" | sudo tee -a /etc/fstab
 ```
 
 #### Running the Playbook
@@ -158,14 +151,12 @@ ways to run the playbook.
 ansible-playbook -i inventories/vm.ini playbook.yml --extra-vars "galaxy_user=admin@email.com"
 ```
 
-If reattaching existing disks and restoring Galaxy data, include the restoration variable (see [CNPG_SKIP_INITDB_INTEGRATION.md](docs/CNPG_SKIP_INITDB_INTEGRATION.md)):
+If reattaching existing disks and restoring Galaxy data, include the restoration
+variable (see [docs/CNPG_database_restore.md](docs/CNPG_database_restore.md)):
 
 ```bash
 # Auto-detect existing data
 --extra-vars "galaxy_restore_pvc_uuid=auto"
-
-# Or specify explicit PVC UUID
---extra-vars "galaxy_restore_pvc_uuid=57681430-eb8f-460f-9eae-294e061c579e"
 ```
 
 Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
@@ -241,88 +232,8 @@ When `enable_gcp_batch=true`, the playbook automatically:
 - **Restarts Deployments**: Applies configuration changes by restarting Galaxy pods
 
 No manual intervention required for NFS path detection or configuration updates.
-## Advanced Configuration
-
-### Using Multiple Helm Values Files
-
-The Galaxy deployment supports using multiple Helm values files, which allows you to compose configurations from different sources. This is useful for:
-- Separating base configuration from environment-specific overrides
-- Maintaining common settings across deployments
-- Adding optional features (like GCP Batch) via additional values files
-
-#### Single Values File (Default)
-
-By default, the playbook uses `values/values.yml`:
-
-```bash
-ansible-playbook -i inventories/vm.ini playbook.yml
-```
-
-You can specify a different single file:
-
-```bash
-ansible-playbook -i inventories/vm.ini playbook.yml \
-  --extra-vars "galaxy_values_file=values/custom.yml"
-```
-
-#### Multiple Values Files
-
-To use multiple values files, pass a list to `galaxy_values_files`:
-
-```bash
-ansible-playbook -i inventories/vm.ini playbook.yml \
-  --extra-vars '{"galaxy_values_files": ["values/values.yml", "values/gcp-batch.yml"]}'
-```
-
-Or using JSON syntax:
-
-```bash
-ansible-playbook -i inventories/vm.ini playbook.yml \
-  -e galaxy_values_files='["values/base.yml","values/prod.yml"]'
-```
-
-Files are applied in order, with later files overriding earlier ones (following Helm's standard behavior).
-
-#### Example: Composing Configurations
-
-Create separate values files for different purposes:
-
-```yaml
-# values/base.yml - Common settings
-persistence:
-  size: "20Gi"
-postgresql:
-  galaxyDatabasePassword: "changeme"
-
-# values/production.yml - Production-specific settings
-persistence:
-  size: "100Gi"
-configs:
-  galaxy.yml:
-    galaxy:
-      admin_users: "admin@example.com"
-
-# values/gcp-batch.yml - GCP Batch job runner
-configs:
-  job_conf.yml:
-    runners:
-      gcp_batch:
-        load: galaxy.jobs.runners.gcp_batch:GCPBatchJobRunner
-```
-
-Then deploy with:
-
-```bash
-ansible-playbook -i inventories/vm.ini playbook.yml \
-  -e galaxy_values_files='["values/base.yml","values/production.yml","values/gcp-batch.yml"]'
-```
 
 ## Deleting the VM
-
-> [!CAUTION]
-> **Note:** Redeploying an instance does not currently work because of CNPG not
-> able to restart. This will be addressed in future releases. Instructions below
-> are intended to capture how persistence will work in the future.
 
 Before deleting the VM, if you will want to preserve the Galaxy data, record the
 PVC UUID for Galaxy. You can use the following command to get the UUID:
@@ -352,12 +263,4 @@ The playbook can set up a Pulsar node instead of Galaxy. The invocation process 
 
 ```bash
 ansible-playbook -i inventories/vm.ini playbook.yml --extra-vars "application=pulsar" --extra-vars "pulsar_api_key=changeme"
-```
-
-## Managing the Kubernetes cluster
-
-If you would like to manage the Kubernetes cluster, you can use the `kubectl` command on the server, or download the `kubeconfig` file from the server and use it on your local machine.
-
-```bash
-scp -i my-key.pem ubuntu@<server-ip>:/home/ubuntu/.kube/config ~/.kube/config
 ```

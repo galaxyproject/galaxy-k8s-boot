@@ -141,7 +141,6 @@ data:
                     echo "Creating PVC symlink: ${absolutePath} -> ${existingDir}"
                     ln -s "${existingDir}" "${absolutePath}"
                     echo "PVC symlink created successfully"
-                    # Note: pgdata symlink is created by Ansible BEFORE galaxy-deps installation
                     exit 0
                 fi
             fi

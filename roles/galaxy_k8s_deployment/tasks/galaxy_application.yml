@@ -1,10 +1,12 @@
 ---
 # Galaxy Application Setup Tasks
-- name: Add CloudVE Helm repository
+- name: Ensure Helm repositories are available
   kubernetes.core.helm_repository:
-    name: cloudve
-    repo_url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+    name: "{{ item.name }}"
     state: present
+    repo_url: "{{ item.url }}"
+    force_update: true
+  loop: "{{ helm_repositories }}"
 
 - name: Create the galaxy-deps namespace
   kubernetes.core.k8s:
@@ -63,8 +65,8 @@
   until:
     - plugin_pod.resources | length > 0
     - plugin_pod.resources[0].status.phase == "Running"
-  retries: 30
-  delay: 5
+  retries: 10
+  delay: 3
   when: _restoration_enabled
 
 - name: Display CNPG plugin status
@@ -81,74 +83,6 @@
     namespace: "{{ cnpg_skip_initdb_namespace }}"
     kubeconfig: "{{ kubeconfig_path }}"
   when: not _restoration_enabled
-
-# ============================================================================
-# PostgreSQL Data Restoration - Pre-create pgdata Symlink
-# ============================================================================
-# CRITICAL: Must run BEFORE galaxy-deps (which creates PostgreSQL cluster)
-# Creates pgdata -> pgdata_TIMESTAMP symlink so PostgreSQL uses existing data
-
-- name: Create temporary script for pgdata symlink creation
-  ansible.builtin.copy:
-    dest: /tmp/create_pgdata_symlink.sh
-    mode: '0755'
-    content: |
-      #!/bin/bash
-      # Find actual PostgreSQL PVC directory (may be symlinked from previous restoration)
-      PVC_PATTERN='{{ postgres_storage_disk_path }}/pvc-*_galaxy_galaxy-postgres-1'
-      POSTGRES_BASE=$(readlink -f $PVC_PATTERN 2>/dev/null | head -1)
-
-      if [ -z "$POSTGRES_BASE" ]; then
-        echo "No existing PostgreSQL PVC found, will use fresh database"
-        exit 0
-      fi
-
-      echo "PostgreSQL base directory: $POSTGRES_BASE"
-
-      # Find oldest timestamped pgdata directory (original database)
-      OLDEST_PGDATA=$(find "$POSTGRES_BASE" -maxdepth 1 -type d -name "pgdata_*" | sort | head -1)
-
-      if [ -z "$OLDEST_PGDATA" ]; then
-        echo "No timestamped pgdata found, will use fresh database"
-        exit 0
-      fi
-
-      PGDATA_NAME=$(basename "$OLDEST_PGDATA")
-      echo "Found existing database: $PGDATA_NAME"
-
-      # Remove any existing pgdata (might be leftover directory from failed restoration)
-      if [ -e "$POSTGRES_BASE/pgdata" ] && [ ! -L "$POSTGRES_BASE/pgdata" ]; then
-        echo "Removing existing pgdata directory from previous failed restoration"
-        rm -rf "$POSTGRES_BASE/pgdata"
-      fi
-
-      # Create symlink if it doesn't exist
-      if [ ! -e "$POSTGRES_BASE/pgdata" ]; then
-        ln -s "$PGDATA_NAME" "$POSTGRES_BASE/pgdata"
-        echo "SUCCESS: Created symlink pgdata -> $PGDATA_NAME"
-        echo "PostgreSQL will now use existing database on startup"
-      else
-        LINK_TARGET=$(readlink "$POSTGRES_BASE/pgdata")
-        echo "Symlink already exists: pgdata -> $LINK_TARGET"
-      fi
-  when: _restoration_enabled
-
-- name: Pre-create PostgreSQL pgdata symlink for database restoration
-  ansible.builtin.command: /tmp/create_pgdata_symlink.sh
-  become: true
-  register: pgdata_symlink_result
-  when: _restoration_enabled
-
-- name: Clean up temporary script
-  ansible.builtin.file:
-    path: /tmp/create_pgdata_symlink.sh
-    state: absent
-  when: _restoration_enabled
-
-- name: Display pgdata symlink creation result
-  debug:
-    msg: "{{ pgdata_symlink_result.stdout_lines }}"
-  when: _restoration_enabled
 
 - name: Helm install galaxy-deps
   kubernetes.core.helm:
@@ -304,13 +238,14 @@
     msg: "Using node internal IP for NFS: {{ nfs_server }} (accessible from GCP Batch VMs in same VPC)"
   when: enable_gcp_batch | default(false) | bool
 
-# Prepare values files list with backward compatibility
+# ============================================================================
+# Install Galaxy
+# ============================================================================
+
 - name: Prepare Galaxy values files list
   set_fact:
     _galaxy_values_files: >-
-      {%- if galaxy_values_file is defined and galaxy_values_file != "" -%}
-        {{ [galaxy_values_file] }}
-      {%- elif galaxy_values_files is defined and galaxy_values_files | length > 0 -%}
+      {%- if galaxy_values_files is defined and galaxy_values_files | length > 0 -%}
         {{ galaxy_values_files }}
       {%- else -%}
         {{ ['values/values.yml'] }}
@@ -397,7 +332,7 @@
     showmount -e {{ nfs_server }} | grep '/export/pvc-' | head -1 | awk '{print $1}'
   register: nfs_export_detection
   retries: 10
-  delay: 5
+  delay: 3
   until: nfs_export_detection.stdout != ""
   when: enable_gcp_batch | default(false) | bool
 

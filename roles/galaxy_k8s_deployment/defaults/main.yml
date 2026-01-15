@@ -65,7 +65,7 @@ setup_postgres_storage: true
 
 # cert-manager Configuration
 # Required for CNPG skip-initdb plugin TLS certificates
-setup_cert_manager: true
+setup_cert_manager: false
 cert_manager_version: "v1.14.0"
 
 # CNPG Skip-Initdb Plugin Configuration
@@ -99,11 +99,9 @@ galaxy_chart_version: "6.7.0-dev"
 galaxy_deps_version: "1.1.1"
 
 # Galaxy Helm values files configuration
-# Supports both single file (string, deprecated) and multiple files (list)
-# Examples:
-#   galaxy_values_file: "values/values.yml"  # Single file (backward compatible)
-#   galaxy_values_files: ["values/values.yml", "values/custom.yml"]  # Multiple files
-galaxy_values_file: ""  # Deprecated - use galaxy_values_files instead
+# Supports multiple values files that will be merged in order
+# Example:
+#   galaxy_values_files: ["values/values.yml", "values/custom.yml"]
 galaxy_values_files:
   - "values/values.yml"
 
