@@ -78,17 +78,8 @@ cnpg_skip_initdb_namespace: "galaxy-deps"
 cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
 
 # Galaxy Restoration Control
-# Optional variable that controls restoration of both PVC and PostgreSQL database
-# Values:
-#   "" (empty/default) = Fresh installation with dynamic PVC provisioning
-#   "auto"             = Auto-detect existing PVC UUID from NFS exports and restore
-#   "<uuid>"           = Restore from specific PVC UUID (e.g., "57681430-eb8f-460f-9eae-294e061c579e")
-#
-# When restoration is enabled (auto or explicit UUID):
-#   - Creates static PV/PVC pointing to existing NFS data
-#   - Deploys CNPG skip-initdb plugin (auto-detects existing database)
-#   - Restores RabbitMQ credentials if needed
-galaxy_restore_pvc_uuid: ""
+# When true, automatically detects and restores existing Galaxy PVC and database
+restore_galaxy: false
 
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table

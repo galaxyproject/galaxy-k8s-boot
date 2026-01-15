@@ -54,12 +54,8 @@ The following variable controls Galaxy restoration behavior:
 
 ```yaml
 # Galaxy Restoration Control
-# Optional variable that controls restoration of both PVC and PostgreSQL database
-# Values:
-#   "" (empty/default) = Fresh installation with dynamic PVC provisioning
-#   "auto"             = Auto-detect existing PVC UUID from NFS exports and restore
-#   "<uuid>"           = Restore from specific PVC UUID (e.g., "57681430-eb8f-460f-9eae-294e061c579e")
-galaxy_restore_pvc_uuid: ""
+# When true, automatically detects and restores existing Galaxy PVC and database
+restore_galaxy: false
 
 # CNPG plugin configuration (advanced - typically no need to change)
 cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
@@ -82,14 +78,7 @@ ansible-playbook -i inventories/my-server.ini playbook.yml \
 ```bash
 ansible-playbook -i inventories/my-server.ini playbook.yml \
   --extra-vars "galaxy_user=admin@example.com" \
-  --extra-vars "galaxy_restore_pvc_uuid=auto"
-```
-
-**Relaunch with explicit UUID** (restore from specific PVC):
-```bash
-ansible-playbook -i inventories/my-server.ini playbook.yml \
-  --extra-vars "galaxy_user=admin@example.com" \
-  --extra-vars "galaxy_restore_pvc_uuid=57681430-eb8f-460f-9eae-294e061c579e"
+  --extra-vars "restore_galaxy=true"
 ```
 
 ### Using the VM Launch Script
@@ -104,11 +93,6 @@ bin/launch_vm.sh my-galaxy-vm
 **Auto-detect and restore**:
 ```bash
 bin/launch_vm.sh my-galaxy-vm --restore-galaxy
-```
-
-**Restore from specific UUID**:
-```bash
-bin/launch_vm.sh my-galaxy-vm --restore-pvc-uuid 57681430-eb8f-460f-9eae-294e061c579e
 ```
 
 ## How It Works
@@ -131,7 +115,7 @@ This ensures the new PVC points to existing PostgreSQL data.
 
 ### CNPG Plugin Behavior
 
-The skip-initdb plugin is deployed automatically when restoration is enabled (`galaxy_restore_pvc_uuid` is set).
+The skip-initdb plugin is deployed automatically when restoration is enabled (`restore_galaxy` is set to true).
 The plugin uses **auto-detection**:
 
 1. Plugin deploys to `galaxy-deps` namespace (same as CNPG operator)
@@ -340,11 +324,10 @@ Galaxy restoration is controlled by a single variable:
 
 ```yaml
 # Control all restoration behavior with one variable
-galaxy_restore_pvc_uuid: ""
+restore_galaxy: false
 # Values:
-#   "" (empty/default) = Fresh installation
-#   "auto"             = Auto-detect and restore
-#   "<uuid>"           = Restore from specific UUID
+#   false (default) = Fresh installation
+#   true            = Auto-detect and restore
 ```
 
 This variable controls:
@@ -352,7 +335,7 @@ This variable controls:
 - PostgreSQL database restoration (CNPG plugin)
 - RabbitMQ credential synchronization
 
-When set to `"auto"` or a specific UUID, all persistent data features are automatically activated.
+When set to `true`, all persistent data features are automatically activated.
 
 ## References
 

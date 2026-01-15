@@ -156,7 +156,7 @@ variable (see [docs/CNPG_database_restore.md](docs/CNPG_database_restore.md)):
 
 ```bash
 # Auto-detect existing data
---extra-vars "galaxy_restore_pvc_uuid=auto"
+--extra-vars "restore_galaxy=true"
 ```
 
 Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
@@ -235,16 +235,6 @@ No manual intervention required for NFS path detection or configuration updates.
 
 ## Deleting the VM
 
-Before deleting the VM, if you will want to preserve the Galaxy data, record the
-PVC UUID for Galaxy. You can use the following command to get the UUID:
-
-```bash
-kubectl get pv -o jsonpath='{range .items[?(@.spec.claimRef.name=="galaxy-galaxy-pvc")]}{.metadata.name}{"\n"}{end}'
-
-# Example output: pvc-57681430-eb8f-460f-9eae-294e061c579e
-# Record the UUID part: 57681430-eb8f-460f-9eae-294e061c579e
-```
-
 Uninstall the Galaxy Helm chart and cleanup Ansible-managed resources:
 
 ```bash
@@ -255,6 +245,13 @@ helm uninstall -n galaxy-deps galaxy-deps --wait
 kubectl delete deployment -n galaxy-deps -l app.kubernetes.io/part-of=galaxy --ignore-not-found=true
 kubectl delete service -n galaxy-deps -l app.kubernetes.io/part-of=galaxy --ignore-not-found=true
 kubectl delete certificate,issuer -n galaxy-deps -l app.kubernetes.io/part-of=galaxy --ignore-not-found=true
+```
+
+Optionally, you can also remove any symlinks left on the persistent disks:
+
+```bash
+# Clean up orphaned symlinks on persistent disks
+sudo find /mnt/block_storage /mnt/postgres_storage -maxdepth 1 -type l -delete
 ```
 
 Then, delete the VM using:

@@ -27,16 +27,9 @@
 # ============================================================================
 # Parse restoration mode EARLY so we can deploy CNPG plugin before galaxy-deps
 
-- name: Parse restoration mode from galaxy_restore_pvc_uuid
-  set_fact:
-    _restoration_enabled: "{{ galaxy_restore_pvc_uuid | default('') != '' }}"
-    _auto_detect_mode: "{{ galaxy_restore_pvc_uuid | default('') == 'auto' }}"
-    _explicit_pvc_uuid: "{{ galaxy_restore_pvc_uuid if (galaxy_restore_pvc_uuid | default('') not in ['', 'auto']) else '' }}"
-
 - name: Display restoration mode
   debug:
-    msg: |
-      Galaxy restoration mode: {{ 'Fresh installation' if not _restoration_enabled else ('Auto-detect PVC' if _auto_detect_mode else 'Explicit PVC: ' + _explicit_pvc_uuid) }}
+    msg: "Galaxy restoration mode: {{ 'Auto-detect and restore' if restore_galaxy else 'Fresh installation' }}"
 
 # ============================================================================
 # CNPG Skip-Initdb Plugin Deployment
@@ -51,7 +44,7 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
     definition: "{{ lookup('template', 'templates/cnpg_skip_initdb_plugin.yaml.j2') }}"
-  when: _restoration_enabled
+  when: restore_galaxy
 
 - name: Wait for CNPG plugin pod to be ready
   kubernetes.core.k8s_info:
@@ -67,13 +60,12 @@
     - plugin_pod.resources[0].status.phase == "Running"
   retries: 10
   delay: 3
-  when: _restoration_enabled
+  when: restore_galaxy
 
 - name: Display CNPG plugin status
   debug:
     msg: "CNPG skip-initdb plugin deployed. Plugin will skip initdb."
-  when: _restoration_enabled
-
+  when: restore_galaxy
 - name: Ensure CNPG plugin is NOT deployed in fresh install mode
   kubernetes.core.k8s:
     state: absent
@@ -82,7 +74,7 @@
     name: skip-initdb
     namespace: "{{ cnpg_skip_initdb_namespace }}"
     kubeconfig: "{{ kubeconfig_path }}"
-  when: not _restoration_enabled
+  when: not restore_galaxy
 
 - name: Helm install galaxy-deps
   kubernetes.core.helm:
@@ -96,13 +88,6 @@
 # Galaxy Data Restoration - Determine PVC UUID
 # ============================================================================
 # Restoration mode already parsed above. Now determine specific PVC UUID.
-# Step 1: Determine PVC UUID for restoration
-- name: Use explicit PVC UUID
-  set_fact:
-    detected_galaxy_pvc_uuid: "{{ _explicit_pvc_uuid }}"
-  when:
-    - _restoration_enabled
-    - _explicit_pvc_uuid != ''
 
 - name: Auto-detect Galaxy PVC UUID from NFS exports
   shell: |
@@ -121,16 +106,13 @@
     KUBECONFIG: "{{ kubeconfig_path }}"
   register: auto_detected_uuid
   ignore_errors: true
-  when:
-    - _restoration_enabled
-    - _auto_detect_mode
+  when: restore_galaxy
 
 - name: Set auto-detected PVC UUID
   set_fact:
     detected_galaxy_pvc_uuid: "{{ auto_detected_uuid.stdout | trim }}"
   when:
-    - _restoration_enabled
-    - _auto_detect_mode
+    - restore_galaxy
     - auto_detected_uuid.stdout is defined
     - auto_detected_uuid.stdout | trim != ''
 
@@ -138,16 +120,15 @@
   debug:
     msg: "Using Galaxy PVC UUID: {{ detected_galaxy_pvc_uuid }}"
   when:
-    - _restoration_enabled
+    - restore_galaxy
     - detected_galaxy_pvc_uuid is defined
     - detected_galaxy_pvc_uuid != ''
 
 - name: Warn if auto-detection failed
   debug:
-    msg: "WARNING: galaxy_restore_pvc_uuid='auto' but no existing PVC found in NFS exports. Falling back to fresh installation."
+    msg: "WARNING: restore_galaxy=true but no existing PVC found in NFS exports. Falling back to fresh installation."
   when:
-    - _restoration_enabled
-    - _auto_detect_mode
+    - restore_galaxy
     - detected_galaxy_pvc_uuid is not defined or detected_galaxy_pvc_uuid == ''
 
 # Step 2: Restore Galaxy PVC if UUID determined
@@ -181,14 +162,14 @@
         galaxy_helm_extra_sets: []
 
   when:
-    - _restoration_enabled
+    - restore_galaxy
     - detected_galaxy_pvc_uuid is defined
     - detected_galaxy_pvc_uuid != ''
 
 - name: Set Galaxy Helm values for fresh deployment
   set_fact:
     galaxy_helm_extra_sets: []
-  when: not _restoration_enabled or detected_galaxy_pvc_uuid | default('') == ''
+  when: not restore_galaxy or detected_galaxy_pvc_uuid | default('') == ''
 
 # ============================================================================
 # GCP Batch: NFS Server Configuration
@@ -273,7 +254,7 @@
     kubeconfig: "{{ kubeconfig_path }}"
     update_repo_cache: true
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (_restoration_enabled and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) }}"
   vars:
     _helm_values_base:
@@ -415,7 +396,7 @@
       type: Ready
       status: "True"
     wait_timeout: 300
-  when: _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+  when: restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
 
 - name: Get expected RabbitMQ credentials from secret
   kubernetes.core.k8s_info:
@@ -425,14 +406,14 @@
     namespace: galaxy
     kubeconfig: "{{ kubeconfig_path }}"
   register: rabbitmq_secret
-  when: _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+  when: restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
 
 - name: Decode expected RabbitMQ username
   set_fact:
     expected_rabbitmq_user: "{{ rabbitmq_secret.resources[0].data.username | b64decode }}"
     expected_rabbitmq_pass: "{{ rabbitmq_secret.resources[0].data.password | b64decode }}"
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - rabbitmq_secret.resources | length > 0
 
 - name: Check existing RabbitMQ users
@@ -443,14 +424,14 @@
   register: rabbitmq_users_json
   ignore_errors: true
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - expected_rabbitmq_user is defined
 
 - name: Parse RabbitMQ users
   set_fact:
     rabbitmq_existing_users: "{{ rabbitmq_users_json.stdout | from_json | map(attribute='user') | list }}"
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - rabbitmq_users_json.stdout is defined
     - rabbitmq_users_json.stdout != ""
     - rabbitmq_users_json.rc == 0
@@ -459,7 +440,7 @@
   set_fact:
     rabbitmq_user_exists: "{{ expected_rabbitmq_user in rabbitmq_existing_users }}"
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - rabbitmq_existing_users is defined
     - expected_rabbitmq_user is defined
 
@@ -467,7 +448,7 @@
   debug:
     msg: "RabbitMQ expected user '{{ expected_rabbitmq_user }}' exists: {{ rabbitmq_user_exists | default(false) }}"
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - expected_rabbitmq_user is defined
 
 - name: Create expected RabbitMQ user (credential sync)
@@ -477,7 +458,7 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists
 
@@ -488,7 +469,7 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists
 
@@ -499,7 +480,7 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists
 
@@ -507,6 +488,6 @@
   debug:
     msg: "Created RabbitMQ user '{{ expected_rabbitmq_user }}' with administrator permissions"
   when:
-    - _restoration_enabled and detected_galaxy_pvc_uuid | default('') != ''
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists

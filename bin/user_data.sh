@@ -76,6 +76,7 @@ runcmd:
     GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_LIST" | sed -e 's/;/","/g' -e 's/^/["/' -e 's/$/"]/')
     GIT_REPO=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-repo" -H "Metadata-Flavor: Google" 2>/dev/null || echo "https://github.com/galaxyproject/galaxy-k8s-boot.git")
     GIT_BRANCH=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-branch" -H "Metadata-Flavor: Google" 2>/dev/null || echo "master")
+    RESTORE_GALAXY=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/restore_galaxy" -H "Metadata-Flavor: Google" 2>/dev/null || echo "false")
 
     mkdir -p /tmp/ansible-inventory
     cat > /tmp/ansible-inventory/localhost << EOF
@@ -100,11 +101,11 @@ runcmd:
     echo "[`date`] - Git Repository: ${GIT_REPO}"
     echo "[`date`] - Git Branch: ${GIT_BRANCH}"
 
-    # Add galaxy_restore_pvc_uuid if provided
+    # Add restore_galaxy if enabled
     RESTORE_EXTRA_VAR=""
-    if [ -n "${GALAXY_RESTORE_PVC_UUID}" ]; then
-        RESTORE_EXTRA_VAR="--extra-vars \"galaxy_restore_pvc_uuid=${GALAXY_RESTORE_PVC_UUID}\""
-        echo "[`date`] - Galaxy Restore Mode: ${GALAXY_RESTORE_PVC_UUID}"
+    if [ "$RESTORE_GALAXY" = "true" ]; then
+        RESTORE_EXTRA_VAR="--extra-vars \"restore_galaxy=true\""
+        echo "[`date`] - Galaxy Restore Mode: Enabled"
     fi
 
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
