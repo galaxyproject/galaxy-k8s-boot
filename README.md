@@ -245,12 +245,18 @@ kubectl get pv -o jsonpath='{range .items[?(@.spec.claimRef.name=="galaxy-galaxy
 # Record the UUID part: 57681430-eb8f-460f-9eae-294e061c579e
 ```
 
-Uninstall the Galaxy Helm chart to ensure all resources are properly cleaned up:
+Uninstall the Galaxy Helm chart and cleanup Ansible-managed resources:
 
 ```bash
 helm uninstall -n galaxy galaxy --wait
 helm uninstall -n galaxy-deps galaxy-deps --wait
+
+# Remove CNPG plugin if it was deployed (it's deployed by Ansible, not Helm)
+kubectl delete deployment -n galaxy-deps -l app.kubernetes.io/part-of=galaxy --ignore-not-found=true
+kubectl delete service -n galaxy-deps -l app.kubernetes.io/part-of=galaxy --ignore-not-found=true
+kubectl delete certificate,issuer -n galaxy-deps -l app.kubernetes.io/part-of=galaxy --ignore-not-found=true
 ```
+
 Then, delete the VM using:
 
 ```bash

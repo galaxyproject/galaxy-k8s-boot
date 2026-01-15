@@ -16,6 +16,9 @@ kind: Issuer
 metadata:
   name: cnpg-skip-initdb-issuer
   namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+  labels:
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
 spec:
   selfSigned: {}
 ---
@@ -24,6 +27,9 @@ kind: Certificate
 metadata:
   name: skip-initdb-server
   namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+  labels:
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
 spec:
   secretName: skip-initdb-server-tls
   commonName: "skip-initdb"
@@ -47,6 +53,9 @@ kind: Certificate
 metadata:
   name: skip-initdb-client
   namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+  labels:
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
 spec:
   secretName: skip-initdb-client-tls
   commonName: "skip-initdb-client"
@@ -67,6 +76,8 @@ metadata:
     app: skip-initdb
     app.kubernetes.io/name: cnpg-skip-initdb
     app.kubernetes.io/component: plugin
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
   name: skip-initdb
   namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
 spec:
@@ -118,6 +129,8 @@ metadata:
     app: skip-initdb
     app.kubernetes.io/name: cnpg-skip-initdb
     app.kubernetes.io/component: plugin
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
     # This label is how CNPG discovers the plugin
     cnpg.io/pluginName: {{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}
   annotations:
