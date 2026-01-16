@@ -1,9 +1,9 @@
 # Galaxy Kubernetes Boot
 
-Use this repo to deploy Galaxy. The repo contains Ansible playbooks to prepare a
-cloud image and deploy a Galaxy instance. Galaxy is deployed on a Kubernetes
-cluster using RKE2. The playbooks work on GCP, AWS, and OpenStack (e.g.,
-Jetstream2).
+Use this repo to deploy Galaxy. The repo contains Ansible playbooks to (1)
+prepare a cloud image and (2) deploy a Galaxy instance. Galaxy is deployed on a
+Kubernetes cluster using RKE2. The playbooks work on GCP, AWS, and OpenStack
+(e.g., Jetstream2).
 
 The deployed Galaxy can run jobs on the same K8s cluster but the intent of this
 deployment model is for Galaxy to submit jobs to an external job management
@@ -11,7 +11,7 @@ system, such as GCP Batch.
 
 ## Overview
 
-This repo is divided into two main parts:
+This repo is divided into two main playbooks:
 
 1. **Image Preparation**: This part contains a playbook to prepare a cloud image
    with all necessary components pre-installed. See the [Image
@@ -25,58 +25,28 @@ This repo is divided into two main parts:
 The preferred way to deploy Galaxy is with a pre-built Ubuntu 24.04 image
 following the documentation below. The playbook can also run on a fresh Ubuntu
 24.04 VM, but it will take longer to complete as it needs to install all
-dependencies. The documentation below covers the minimal steps. For more
-options, see the [Advanced Configuration](docs/advanced_configuration.md)
-documentation.
+dependencies. The playbook will install all necessary software by running an
+Ansible playbook to deploy Galaxy. Galaxy should be available at
+`http://INSTANCE_IP/` in about 6 minutes. The documentation below covers the
+minimal steps using the `gcloud` command. For more options, see the [Advanced
+Configuration](docs/advanced_configuration.md) documentation.
 
-### Automated Deployment Directly on GCP
+The most hands-off way to deploy Galaxy is to launch a VM on GCP so that it runs
+the deployment playbook automatically on first boot. For this option, include
+the `--metadata-from-file=user-data=bin/user_data.sh` option in the `gcloud`
+command. One downside to this method is that it makes it difficult to rerun the
+playbook, which can be useful during development. Instead, you can launch the VM
+without user data and then run the Ansible playbook manually from your local
+machine.
 
-The most hands-off way to deploy Galaxy is to launch a VM on GCP that runs the
-deployment playbook automatically on first boot. For this option, paste the
-contents of `bin/launch_vm.sh` into the VM user data when launching the
-instance. This will install all necessary software by running an Ansible
-playbook to deploy Galaxy. Galaxy should be available at `http://INSTANCE_IP/`
-in about 6 minutes.
+When deploying Galaxy, you can deploy a fresh instance or restore one from
+existing persistent disks. By default, the playbook will create a fresh
+installation. See documentation below for how to restore from existing data.
 
-#### Monitoring Deployment
+### Creating a Fresh VM
 
-After launching the VM, you can ssh into the VM to monitor the deployment
-progress:
-
-```bash
-# Watch cloud-init output
-sudo tail -n +1 -f /var/log/cloud-init-output.log
-
-# Monitor deployment logs
-sudo journalctl -f -u cloud-final
-```
-
-### Deployment from Local Machine
-
-One downside to the above method is that it makes it difficult to customize the
-deployment or rerun the playbook, which is useful during development. Instead,
-you can launch the VM without user data and then run the Ansible playbook from
-your local machine.
-
-> [!NOTE]
-> There is also `bin/launch_vm.sh` script that automates the steps for launching
-> the VM and running the playbook. This is often useful for scenarios where you
-> want to test Galaxy functionality or configuration changes. Check out
-> `bin/launch_vm.sh --help` for details.
-
-#### Prerequisites
-
-To run the playbook locally, we need to install the dependencies for this repo.
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-#### Creating a VM
-
-Use the `gcloud` command to create a VM instance.
+To create a VM instance but not run the playbook automatically, use the
+following command:
 
 ```bash
 gcloud compute instances create ea-fresh \
@@ -94,32 +64,53 @@ gcloud compute instances create ea-fresh \
   --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair"
 ```
 
-**Note**: Both disks use `auto-delete=no` to persist after VM deletion.
+If you'd like to automatically run the playbook on first boot, include the
+following option with the above `gcloud` command:
 
-For attaching existing disks instead of `--create-disk` options, use multiple
-`--disk` flags:
+```bash
+--metadata-from-file=user-data=bin/user_data.sh
+```
+**Note**: Both disks use `auto-delete=no` so the disks are retained after VM
+deletion. You can toggle these if you want the disks to be automatically deleted
+with the VM.
+
+### Restoring from Existing Data
+
+If you kept the disks from a previous deployment, you can reattach them to a new
+VM and restore the Galaxy instance from the existing data. To do this, use the
+`--disk` flag instead of `--create-disk` when creating the VM:
+
 ```bash
 --disk=name=existing-nfs-disk,device-name=galaxy-data,mode=rw \
 --disk=name=existing-postgres-disk,device-name=galaxy-postgres-data,mode=rw \
 ```
 
-> [!CAUTION]
-> **Note:** Reattaching existing disks preserves the data on disk, but CNPG will
-> create a new PostgreSQL cluster each time this playbook is run, effectively
-> resulting in a new, empty Galaxy instance. CNPG recovery/restore functionality
-> will be addressed in future releases.
-
-If you'd like to replicate the automated deployment, add the following option to
-the `gcloud` command:
+If you are using the `--metadata-from-file=user-data=bin/user_data.sh` option to
+run the playbook automatically, you will also need to include the
+`restore_galaxy=true` metadata key to trigger the restoration process:
 
 ```bash
---metadata-from-file=user-data=bin/user_data.sh
+--metadata=restore_galaxy=true
+```
+
+### Running the Playbook Manually
+
+#### Prerequisites
+
+Before you can run the playbook locally, we need to install the dependencies for
+this repo.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 #### Mounting Persistent Disks
 
-Before running the Ansible playbook, SSH into the VM and mount the attached
-persistent disks:
+Before running the playbook manually, you'll need to mount the persistent disks
+on the VM and then run the playbook from your local machine. To mount the disks,
+SSH into the VM and run the following commands:
 
 **Note**: Skip the `mkfs.ext4` commands if reattaching existing disks with data.
 
@@ -148,7 +139,7 @@ Then run the playbook. Check out the [examples](command_examples.md) for differe
 ways to run the playbook.
 
 ```bash
-ansible-playbook -i inventories/vm.ini playbook.yml --extra-vars "galaxy_user=admin@email.com"
+ansible-playbook -i inventories/vm.ini playbook.yml
 ```
 
 If reattaching existing disks and restoring Galaxy data, include the restoration

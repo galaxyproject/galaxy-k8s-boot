@@ -5,7 +5,7 @@ on:
     inputs:
       galaxy-chart-version:
         description: 'Galaxy Helm chart version'
-        default: '6.7.0-dev'
+        default: '6.7.0'
         required: true
       git-repo:
         description: 'Git repository URL for galaxy-k8s-boot'
@@ -187,5 +187,5 @@ jobs:
           echo "Git Branch: ${{ inputs.git-branch }}"
           if [ -n "${{ steps.test-api.outputs.version-info }}" ]; then
             echo "Galaxy Version Info:"
-            echo "${{ steps.test-api.outputs.version-info }}" 
+            echo "${{ steps.test-api.outputs.version-info }}"
           fi
