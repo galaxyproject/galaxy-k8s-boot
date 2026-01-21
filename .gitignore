@@ -3,6 +3,7 @@
 .venv/
 .vscode/
 .prettierignore
+.gemini/
 k3s/outputs/
 ansible.cfg
 sa-key.json

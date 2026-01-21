@@ -87,7 +87,7 @@ metadata:
   name: postgres-storage
 provisioner: rancher.io/postgres-path
 volumeBindingMode: WaitForFirstConsumer
-reclaimPolicy: Delete
+reclaimPolicy: Retain
 ---
 kind: ConfigMap
 apiVersion: v1
@@ -121,6 +121,32 @@ data:
             esac
         done
 
+        # Extract base directory and PVC identifier from absolutePath
+        # Path format: /mnt/postgres_storage/pvc-<uuid>_<namespace>_<pvc-name>
+        baseDir=$(dirname "${absolutePath}")
+        pvcDir=$(basename "${absolutePath}")
+
+        # Extract namespace and pvc-name (everything after the UUID)
+        # Pattern: pvc-<uuid>_<namespace>_<pvc-name>
+        suffix=$(echo "${pvcDir}" | sed 's/^pvc-[a-f0-9-]*_//')
+
+        if [ -n "${suffix}" ]; then
+            # Search for existing directory with same namespace_pvc-name suffix
+            existingDir=$(find "${baseDir}" -maxdepth 1 -type d -name "pvc-*_${suffix}" ! -name "${pvcDir}" 2>/dev/null | head -1)
+
+            if [ -n "${existingDir}" ] && [ -d "${existingDir}" ]; then
+                # Check if existing directory has data (more than just empty dir)
+                if [ "$(ls -A "${existingDir}" 2>/dev/null)" ]; then
+                    echo "Found existing data directory: ${existingDir}"
+                    echo "Creating PVC symlink: ${absolutePath} -> ${existingDir}"
+                    ln -s "${existingDir}" "${absolutePath}"
+                    echo "PVC symlink created successfully"
+                    exit 0
+                fi
+            fi
+        fi
+
+        # No existing directory found, create new one
         mkdir -m 0777 -p ${absolutePath}
   teardown: |-
         #!/bin/sh
@@ -139,7 +165,14 @@ data:
             esac
         done
 
-        rm -rf ${absolutePath}
+        # If it's a symlink, just remove the symlink (preserve actual data)
+        if [ -L "${absolutePath}" ]; then
+            echo "Removing symlink only (preserving actual data): ${absolutePath}"
+            rm -f "${absolutePath}"
+        else
+            # Regular directory - remove it
+            rm -rf ${absolutePath}
+        fi
   helperPod.yaml: |-
         apiVersion: v1
         kind: Pod

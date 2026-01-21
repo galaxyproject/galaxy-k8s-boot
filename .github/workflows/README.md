@@ -91,7 +91,7 @@ Add the following secrets to your GitHub repository:
 2. Select "Test Galaxy Deployment on GCE" workflow
 3. Click "Run workflow"
 4. Customize parameters as needed:
-   - **galaxy-chart-version**: Galaxy Helm chart version (default: 6.6.0)
+   - **galaxy-chart-version**: Galaxy Helm chart version
    - **git-repo**: Repository URL for galaxy-k8s-boot
    - **git-branch**: Branch to deploy
    - **instance-name**: Name for the test VM

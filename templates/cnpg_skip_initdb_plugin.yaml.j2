@@ -1,0 +1,148 @@
+# CNPG Skip-Initdb Plugin
+# This plugin allows CNPG to reuse existing PostgreSQL data directories
+# instead of initializing a new cluster.
+#
+# Prerequisites:
+# - cert-manager must be installed
+# - Plugin image must be available
+#
+# IMPORTANT: The plugin must be deployed in the same namespace as the CNPG operator.
+# For Galaxy deployments, this is typically 'galaxy-deps'.
+#
+# Usage: Set cnpg_skip_initdb_enabled: true in your inventory or extra-vars
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: cnpg-skip-initdb-issuer
+  namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+  labels:
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: skip-initdb-server
+  namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+  labels:
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
+spec:
+  secretName: skip-initdb-server-tls
+  commonName: "skip-initdb"
+  dnsNames:
+    - skip-initdb
+    - skip-initdb.{{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+    - skip-initdb.{{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}.svc
+    - skip-initdb.{{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}.svc.cluster.local
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  isCA: false
+  usages:
+    - server auth
+  issuerRef:
+    name: cnpg-skip-initdb-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: skip-initdb-client
+  namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+  labels:
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
+spec:
+  secretName: skip-initdb-client-tls
+  commonName: "skip-initdb-client"
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  isCA: false
+  usages:
+    - client auth
+  issuerRef:
+    name: cnpg-skip-initdb-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: skip-initdb
+    app.kubernetes.io/name: cnpg-skip-initdb
+    app.kubernetes.io/component: plugin
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
+  name: skip-initdb
+  namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skip-initdb
+  template:
+    metadata:
+      labels:
+        app: skip-initdb
+    spec:
+      containers:
+      - image: {{ cnpg_skip_initdb_image }}
+        name: cnpg-i-skip-initdb
+        ports:
+        - containerPort: 9090
+          protocol: TCP
+        args:
+        - plugin
+        - --server-cert=/server/tls.crt
+        - --server-key=/server/tls.key
+        - --client-cert=/client/tls.crt
+        - --server-address=:9090
+        volumeMounts:
+        - mountPath: /server
+          name: server
+        - mountPath: /client
+          name: client
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+      volumes:
+      - name: server
+        secret:
+          secretName: skip-initdb-server-tls
+      - name: client
+        secret:
+          secretName: skip-initdb-client-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: skip-initdb
+    app.kubernetes.io/name: cnpg-skip-initdb
+    app.kubernetes.io/component: plugin
+    app.kubernetes.io/part-of: galaxy
+    app.kubernetes.io/managed-by: ansible
+    # This label is how CNPG discovers the plugin
+    cnpg.io/pluginName: {{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}
+  annotations:
+    cnpg.io/pluginClientSecret: skip-initdb-client-tls
+    cnpg.io/pluginServerSecret: skip-initdb-server-tls
+    cnpg.io/pluginPort: "9090"
+  name: skip-initdb
+  namespace: {{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}
+spec:
+  ports:
+  - port: 9090
+    protocol: TCP
+    targetPort: 9090
+  selector:
+    app: skip-initdb

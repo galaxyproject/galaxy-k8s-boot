@@ -10,14 +10,15 @@ BOOT_DISK_SIZE="100GB"
 DISK_SIZE="150GB"
 POSTGRES_DISK_SIZE="10GB"
 DISK_TYPE="pd-balanced"
-GALAXY_CHART_VERSION="6.6.0"
+GALAXY_CHART_VERSION="6.7.0"
 GALAXY_DEPS_VERSION="1.1.1"
 GIT_BRANCH="master"
 GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
-MACHINE_IMAGE="galaxy-k8s-boot-v2025-11-14"
-MACHINE_TYPE="e2-standard-4"
+MACHINE_IMAGE="galaxy-k8s-boot-v2026-01-20"
+MACHINE_TYPE="e2-standard-8"
 PROJECT="anvil-and-terra-development"
 ZONE="us-east4-c"
+RESTORE_GALAXY=false
 
 # Parse command line arguments
 DISK_NAME=""
@@ -52,6 +53,7 @@ Options:
   --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
   --postgres-disk DISK_NAME         Name of PostgreSQL disk (default: galaxy-postgres-INSTANCE_NAME)
   --postgres-disk-size SIZE         Size of PostgreSQL disk (default: $POSTGRES_DISK_SIZE)
+  --restore-galaxy                  Auto-detect and restore Galaxy from existing data
   -h, --help, help                  Show this help message
 
 Examples:
@@ -59,7 +61,7 @@ Examples:
   $0 -k "ssh-rsa AAAAB3..." my-galaxy-vm
 
   # Launch VM with specific machine image
-  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2025-11-14 my-galaxy-vm
+  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2026-01-20 my-galaxy-vm
 
   # Launch VM with specific disk names
   $0 -k "ssh-rsa AAAAB3..." -d galaxy-shared-disk --postgres-disk galaxy-postgres-disk my-galaxy-vm
@@ -75,6 +77,9 @@ Examples:
   $0 -k "ssh-rsa AAAAB3..." --values values/values.yml --values values/dev.yml --values values/v25.0.2.yml my-galaxy-vm
   # Launch VM with custom git repository and branch
   $0 -k "ssh-rsa AAAAB3..." -g "https://github.com/username/galaxy-k8s-boot.git" -b "feature-branch" my-galaxy-vm
+
+  # Auto-detect and restore Galaxy from existing data
+  $0 -k "ssh-rsa AAAAB3..." --restore-galaxy my-galaxy-vm
 
 EOF
 }
@@ -142,6 +147,10 @@ while [[ $# -gt 0 ]]; do
             GALAXY_DEPS_VERSION="$2"
             shift 2
             ;;
+        --restore-galaxy)
+            RESTORE_GALAXY=true
+            shift
+            ;;
         -h|--help|help)
             usage
             exit 0
@@ -172,9 +181,13 @@ if [ -z "$INSTANCE_NAME" ]; then
 fi
 
 if [ "$EPHEMERAL_ONLY" = false ] && [ -z "$SSH_KEY" ]; then
-    echo "Error: SSH key is required"
-    usage
-    exit 1
+    if [[ -e ~/.ssh/id_rsa.pub ]] ; then
+        SSH_KEY=$(cat ~/.ssh/id_rsa.pub)
+    else
+      echo "Error: SSH key is required"
+      usage
+      exit 1
+    fi
 fi
 
 # Set default disk names if not provided
@@ -207,6 +220,10 @@ echo "Galaxy Deps Version: $GALAXY_DEPS_VERSION"
 echo "Galaxy Values Files: ${GALAXY_VALUES_FILES[@]}"
 echo "Git Repository: $GIT_REPO"
 echo "Git Branch: $GIT_BRANCH"
+
+if [ "$RESTORE_GALAXY" = true ]; then
+    echo "Galaxy Restore Mode: Auto-detect and restore"
+fi
 
 if [ "$EPHEMERAL_ONLY" = false ]; then
     echo "NFS Disk Name: $DISK_NAME"
@@ -351,6 +368,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_CHART_VERSION="${GALAXY_CHART_VERSION}"
     GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
+    RESTORE_GALAXY="${RESTORE_GALAXY}"
 EOF
 
 cat >> "$TEMP_USER_DATA" << 'EOF'
@@ -369,6 +387,8 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     galaxy_persistence_size="${PV_SIZE}"
     galaxy_db_password="gxy-db-password"
     galaxy_user="dev@galaxyproject.org"
+    galaxy_api_key="galaxypassword"
+    restore_galaxy=$RESTORE_GALAXY
     INVEOF
 
     echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"

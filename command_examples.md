@@ -11,6 +11,43 @@ ansible-playbook -i inventory playbook.yml \
   -e "galaxy_api_key=my-api-key"
 ```
 
+## Galaxy Restoration Examples
+
+### Fresh Installation (Default)
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "galaxy_user=admin@example.com"
+```
+
+### Auto-Detect and Restore
+
+Automatically find and restore from existing data:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "galaxy_user=admin@example.com" \
+  --extra-vars "restore_galaxy=true"
+```
+
+
+### Using GCP Launch Script
+
+```bash
+# Fresh installation
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." my-galaxy-vm
+
+# Auto-detect and restore
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." --restore-galaxy my-galaxy-vm
+```
+
+**What gets restored:**
+- Galaxy NFS data (histories, datasets, job files)
+- PostgreSQL database (users, workflows, histories metadata)
+- RabbitMQ credentials
+
+See [docs/CNPG_database_restore.md](docs/CNPG_database_restore.md) for details.
+
 ### playbook.yml
 
 Unified deployment playbook optimized for pre-prepared images:
@@ -57,7 +94,7 @@ rke2_token: "your-cluster-token"          # Always required for RKE2
 
 ```yaml
 # Galaxy Configuration
-galaxy_values_file: "values/custom.yml"   # Path to your values file
+galaxy_values_files: ["values/custom.yml"]   # Path to your values files
 galaxy_api_key: "your-api-key"            # Galaxy master API key
 galaxy_user: "admin@galaxy.org"           # Admin user email
 galaxy_persistence_size: "50Gi"           # Data volume size

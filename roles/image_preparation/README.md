@@ -78,7 +78,7 @@ gcloud compute instances create ea-mi \
   --project=anvil-and-terra-development \
   --zone=us-east4-b \
   --machine-type=n1-standard-2 \
-  --image=ubuntu-minimal-2404-noble-amd64-v20251111 \
+  --image=ubuntu-minimal-2404-noble-amd64-v20260114 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=100GB \
   --tags=http-server,https-server \
@@ -91,21 +91,8 @@ gcloud compute instances create ea-mi \
 
 #### Customization
 
-Override variables in `defaults/main.yml`, your inventory, or on the command
-line with parameters such as:
-
-```bash
-# Different RKE2 version
--e "rke2_version=v1.34.1+rke2r1"
-
-# Different Helm version
--e "helm_version=v3.19.0"
-```
-
----
-
-Once a clean VM is running, create or update your inventory file with the
-instance details:
+Set any variables in `defaults/main.yml` and create or update your inventory
+file with the instance details:
 
 ```bash
 cp inventories/image_prep.ini.example inventories/image_prep.ini
@@ -124,14 +111,21 @@ Stop the instance and then create the image.
 ```bash
 gcloud compute instances stop ea-mi --zone=us-east4-b
 ```
-Create the image, updating the name and source disk as needed:
+
+Create the image, updating the name and source disk as needed.
 
 ```bash
-gcloud compute images create galaxy-k8s-boot-v2025-11-14 \
+gcloud compute images create galaxy-k8s-boot-v2026-01-20 \
   --source-disk=ea-mi \
   --source-disk-zone=us-east4-b \
   --family=galaxy-k8s-boot \
   --storage-location=us
+```
+
+Then delete the instance.
+
+```bash
+gcloud compute instances delete ea-mi --zone=us-east4-b --quiet
 ```
 
 ### 4. Deploy Galaxy

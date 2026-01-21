@@ -92,11 +92,10 @@ rke2_debug: false                          # Enable debug mode
 
 ```yaml
 nfs_version: "1.8.0"                       # Ganesha NFS chart version
-nfs_persistence_storage_class: blockstorage
 nfs_size: "25Gi"                           # NFS backing storage size
 nfs_default: false                         # Set as default storage class
 nfs_allow_expansion: true
-nfs_reclaim: Delete
+nfs_reclaim: Retain
 ```
 
 ### Ingress Configuration
@@ -109,9 +108,9 @@ ingress_version: "4.13.2"                  # NGINX ingress chart version
 
 ```yaml
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.5.0"              # Galaxy chart version
+galaxy_chart_version: "6.7.0"              # Galaxy chart version
 galaxy_deps_version: "1.1.1"               # Galaxy dependencies version
-galaxy_values_file: "values/values.yml"    # Path to Galaxy values file
+galaxy_values_files: ["values/values.yml"] # Path to Galaxy values files
 galaxy_persistence_size: "20Gi"            # Galaxy data volume size
 galaxy_db_password: "galaxydbpassword"     # PostgreSQL password
 galaxy_user: "admin@galaxy.org"            # Galaxy admin user
@@ -155,7 +154,7 @@ This role has optional dependencies:
         setup_ingress: true
         deploy_galaxy: true
         rke2_token: "my-secure-token"
-        galaxy_values_file: "values/my-galaxy-config.yml"
+        galaxy_values_files: ["values/my-galaxy-config.yml"]
         galaxy_api_key: "my-api-key"
 ```
 
@@ -179,7 +178,7 @@ For fresh Ubuntu installations requiring full setup:
         setup_ingress: true
         deploy_galaxy: true
         rke2_token: "my-secure-token"
-        galaxy_values_file: "values/my-galaxy-config.yml"
+        galaxy_values_files: ["values/my-galaxy-config.yml"]
         galaxy_api_key: "my-api-key"
 ```
 
@@ -248,4 +247,4 @@ If storage provisioning fails:
 If Galaxy fails to deploy:
 1. Check namespace: `kubectl get pods -n galaxy`
 2. Review helm release: `helm list -n galaxy`
-3. Check values file: Ensure `galaxy_values_file` path is correct
+3. Check values files: Ensure `galaxy_values_files` paths are correct

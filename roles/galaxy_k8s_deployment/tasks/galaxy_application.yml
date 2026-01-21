@@ -1,10 +1,12 @@
 ---
 # Galaxy Application Setup Tasks
-- name: Add CloudVE Helm repository
+- name: Ensure Helm repositories are available
   kubernetes.core.helm_repository:
-    name: cloudve
-    repo_url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+    name: "{{ item.name }}"
     state: present
+    repo_url: "{{ item.url }}"
+    force_update: true
+  loop: "{{ helm_repositories }}"
 
 - name: Create the galaxy-deps namespace
   kubernetes.core.k8s:
@@ -12,6 +14,67 @@
     name: galaxy-deps
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
+
+- name: Create the galaxy namespace
+  kubernetes.core.k8s:
+    kind: Namespace
+    name: galaxy
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+
+# ============================================================================
+# Galaxy Data Restoration - Parse Mode
+# ============================================================================
+# Parse restoration mode EARLY so we can deploy CNPG plugin before galaxy-deps
+
+- name: Display restoration mode
+  debug:
+    msg: "Galaxy restoration mode: {{ 'Auto-detect and restore' if restore_galaxy else 'Fresh installation' }}"
+
+# ============================================================================
+# CNPG Skip-Initdb Plugin Deployment
+# ============================================================================
+# CRITICAL: Deploy plugin BEFORE galaxy-deps (which creates PostgreSQL cluster)
+# Plugin must be running to intercept CNPG's initdb request
+# As soon as the plugin is deployed, it does a no-op on initdb and allows PostgreSQL
+# to reuse existing data directories.
+
+- name: Deploy CNPG skip-initdb plugin for database restoration
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition: "{{ lookup('template', 'templates/cnpg_skip_initdb_plugin.yaml.j2') }}"
+  when: restore_galaxy
+
+- name: Wait for CNPG plugin pod to be ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ cnpg_skip_initdb_namespace }}"
+    label_selectors:
+      - "app=skip-initdb"
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: plugin_pod
+  until:
+    - plugin_pod.resources | length > 0
+    - plugin_pod.resources[0].status.phase == "Running"
+  retries: 10
+  delay: 3
+  when: restore_galaxy
+
+- name: Display CNPG plugin status
+  debug:
+    msg: "CNPG skip-initdb plugin deployed. Plugin will skip initdb."
+  when: restore_galaxy
+- name: Ensure CNPG plugin is NOT deployed in fresh install mode
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Deployment
+    name: skip-initdb
+    namespace: "{{ cnpg_skip_initdb_namespace }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+  when: not restore_galaxy
 
 - name: Helm install galaxy-deps
   kubernetes.core.helm:
@@ -21,12 +84,92 @@
     chart_version: "{{ galaxy_deps_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
 
-- name: Create the galaxy namespace
-  kubernetes.core.k8s:
-    kind: Namespace
-    name: galaxy
-    state: present
-    kubeconfig: "{{ kubeconfig_path }}"
+# ============================================================================
+# Galaxy Data Restoration - Determine PVC UUID
+# ============================================================================
+# Restoration mode already parsed above. Now determine specific PVC UUID.
+
+- name: Auto-detect Galaxy PVC UUID from NFS exports
+  shell: |
+    # Note: glob must be expanded inside container, so we use sh -c
+    for dir in $(kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+      sh -c 'ls -d /export/pvc-* 2>/dev/null'); do
+      # Check if this looks like a Galaxy data directory (has objects/ subdirectory)
+      if kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+        test -d "$dir/objects" 2>/dev/null; then
+        # Extract UUID from path: /export/pvc-<uuid>
+        basename "$dir" | sed 's/^pvc-//'
+        exit 0
+      fi
+    done
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: auto_detected_uuid
+  ignore_errors: true
+  when: restore_galaxy
+
+- name: Set auto-detected PVC UUID
+  set_fact:
+    detected_galaxy_pvc_uuid: "{{ auto_detected_uuid.stdout | trim }}"
+  when:
+    - restore_galaxy
+    - auto_detected_uuid.stdout is defined
+    - auto_detected_uuid.stdout | trim != ''
+
+- name: Display determined PVC UUID
+  debug:
+    msg: "Using Galaxy PVC UUID: {{ detected_galaxy_pvc_uuid }}"
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is defined
+    - detected_galaxy_pvc_uuid != ''
+
+- name: Warn if auto-detection failed
+  debug:
+    msg: "WARNING: restore_galaxy=true but no existing PVC found in NFS exports. Falling back to fresh installation."
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is not defined or detected_galaxy_pvc_uuid == ''
+
+# Step 2: Restore Galaxy PVC if UUID determined
+- name: Restore Galaxy PVC from existing data
+  block:
+    - name: Set restore_galaxy_pvc_uuid for include
+      set_fact:
+        restore_galaxy_pvc_uuid: "{{ detected_galaxy_pvc_uuid }}"
+
+    - name: Include Galaxy PVC restoration tasks
+      ansible.builtin.include_tasks: restore_galaxy_pvc.yml
+
+    - name: Set Galaxy Helm values for restore mode
+      set_fact:
+        galaxy_helm_extra_sets:
+          - value: "galaxy.persistence.existingClaim=galaxy-galaxy-pvc"
+            value_type: string
+          - value: "galaxy.persistence.storageClass="
+            value_type: string
+
+  rescue:
+    - name: Log restoration failure
+      debug:
+        msg: |
+          WARNING: Galaxy PVC restoration failed. Falling back to fresh deployment.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+    - name: Clear restore variables to trigger fresh deployment
+      set_fact:
+        detected_galaxy_pvc_uuid: ""
+        galaxy_helm_extra_sets: []
+
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is defined
+    - detected_galaxy_pvc_uuid != ''
+
+- name: Set Galaxy Helm values for fresh deployment
+  set_fact:
+    galaxy_helm_extra_sets: []
+  when: not restore_galaxy or detected_galaxy_pvc_uuid | default('') == ''
 
 # ============================================================================
 # GCP Batch: NFS Server Configuration
@@ -76,13 +219,14 @@
     msg: "Using node internal IP for NFS: {{ nfs_server }} (accessible from GCP Batch VMs in same VPC)"
   when: enable_gcp_batch | default(false) | bool
 
-# Prepare values files list with backward compatibility
+# ============================================================================
+# Install Galaxy
+# ============================================================================
+
 - name: Prepare Galaxy values files list
   set_fact:
     _galaxy_values_files: >-
-      {%- if galaxy_values_file is defined and galaxy_values_file != "" -%}
-        {{ [galaxy_values_file] }}
-      {%- elif galaxy_values_files is defined and galaxy_values_files | length > 0 -%}
+      {%- if galaxy_values_files is defined and galaxy_values_files | length > 0 -%}
         {{ galaxy_values_files }}
       {%- else -%}
         {{ ['values/values.yml'] }}
@@ -110,7 +254,8 @@
     kubeconfig: "{{ kubeconfig_path }}"
     update_repo_cache: true
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    set_values: "{{ galaxy_helm_extra_sets | default([]) }}"
   vars:
     _helm_values_base:
       persistence:
@@ -136,6 +281,11 @@
           runners:
             gcp_batch:
               nfs_server: "{{ nfs_server }}"
+    _helm_values_cnpg_plugin:
+      postgresql:
+        cluster:
+          plugins:
+            - name: "{{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}"
 
 # ============================================================================
 # GCP Batch: NFS Export Path Detection
@@ -163,7 +313,7 @@
     showmount -e {{ nfs_server }} | grep '/export/pvc-' | head -1 | awk '{print $1}'
   register: nfs_export_detection
   retries: 10
-  delay: 5
+  delay: 3
   until: nfs_export_detection.stdout != ""
   when: enable_gcp_batch | default(false) | bool
 
@@ -228,3 +378,116 @@
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
+
+# ============================================================================
+# Persistent Data Reuse: RabbitMQ Credential Synchronization
+# ============================================================================
+# When reusing persistent disks, RabbitMQ may have different credentials than
+# what the new Kubernetes secret generated. This syncs the credentials.
+- name: Wait for RabbitMQ to be ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    name: galaxy-rabbitmq-server-server-0
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+    wait: true
+    wait_condition:
+      type: Ready
+      status: "True"
+    wait_timeout: 300
+  when: restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+
+- name: Get expected RabbitMQ credentials from secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: galaxy-rabbitmq-server-default-user
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: rabbitmq_secret
+  when: restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+
+- name: Decode expected RabbitMQ username
+  set_fact:
+    expected_rabbitmq_user: "{{ rabbitmq_secret.resources[0].data.username | b64decode }}"
+    expected_rabbitmq_pass: "{{ rabbitmq_secret.resources[0].data.password | b64decode }}"
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - rabbitmq_secret.resources | length > 0
+
+- name: Check existing RabbitMQ users
+  shell: |
+    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- rabbitmqctl list_users --formatter json
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: rabbitmq_users_json
+  ignore_errors: true
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - expected_rabbitmq_user is defined
+
+- name: Parse RabbitMQ users
+  set_fact:
+    rabbitmq_existing_users: "{{ rabbitmq_users_json.stdout | from_json | map(attribute='user') | list }}"
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - rabbitmq_users_json.stdout is defined
+    - rabbitmq_users_json.stdout != ""
+    - rabbitmq_users_json.rc == 0
+
+- name: Check if expected user exists in RabbitMQ
+  set_fact:
+    rabbitmq_user_exists: "{{ expected_rabbitmq_user in rabbitmq_existing_users }}"
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - rabbitmq_existing_users is defined
+    - expected_rabbitmq_user is defined
+
+- name: Display RabbitMQ credential status
+  debug:
+    msg: "RabbitMQ expected user '{{ expected_rabbitmq_user }}' exists: {{ rabbitmq_user_exists | default(false) }}"
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - expected_rabbitmq_user is defined
+
+- name: Create expected RabbitMQ user (credential sync)
+  shell: |
+    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
+      rabbitmqctl add_user '{{ expected_rabbitmq_user }}' '{{ expected_rabbitmq_pass }}'
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - rabbitmq_user_exists is defined
+    - not rabbitmq_user_exists
+
+- name: Set administrator tag for new RabbitMQ user
+  shell: |
+    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
+      rabbitmqctl set_user_tags '{{ expected_rabbitmq_user }}' administrator
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - rabbitmq_user_exists is defined
+    - not rabbitmq_user_exists
+
+- name: Set permissions for new RabbitMQ user
+  shell: |
+    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
+      rabbitmqctl set_permissions -p / '{{ expected_rabbitmq_user }}' '.*' '.*' '.*'
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - rabbitmq_user_exists is defined
+    - not rabbitmq_user_exists
+
+- name: Display RabbitMQ credential sync completed
+  debug:
+    msg: "Created RabbitMQ user '{{ expected_rabbitmq_user }}' with administrator permissions"
+  when:
+    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - rabbitmq_user_exists is defined
+    - not rabbitmq_user_exists
