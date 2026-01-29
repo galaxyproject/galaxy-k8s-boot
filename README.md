@@ -87,7 +87,8 @@ VM and restore the Galaxy instance from the existing data. To do this, use the
 
 If you are using the `--metadata-from-file=user-data=bin/user_data.sh` option to
 run the playbook automatically, you will also need to include the
-`restore_galaxy=true` metadata key to trigger the restoration process:
+`restore_galaxy=true` metadata key to trigger the restoration process (if using
+multiple metadata keys, separate them with commas):
 
 ```bash
 --metadata=restore_galaxy=true
@@ -116,12 +117,10 @@ SSH into the VM and run the following commands:
 
 ```bash
 # Mount NFS disk
-sudo mkdir -p /mnt/block_storage
 sudo mkfs.ext4 /dev/disk/by-id/google-galaxy-data
 sudo mount /dev/disk/by-id/google-galaxy-data /mnt/block_storage
 
 # Mount PostgreSQL disk
-sudo mkdir -p /mnt/postgres_storage
 sudo mkfs.ext4 /dev/disk/by-id/google-galaxy-postgres-data
 sudo mount /dev/disk/by-id/google-galaxy-postgres-data /mnt/postgres_storage
 ```
@@ -202,16 +201,8 @@ Deploy Galaxy with GCP Batch enabled:
 ansible-playbook -i inventories/vm.ini playbook.yml \
   --extra-vars "enable_gcp_batch=true" \
   --extra-vars "gcp_batch_service_account_email=galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --extra-vars "gcp_batch_region=us-east4"
-```
-
-Or combine with multiple values files:
-
-```bash
-ansible-playbook -i inventories/vm.ini playbook.yml \
-  -e enable_gcp_batch=true \
-  -e gcp_batch_service_account_email=galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com \
-  -e galaxy_values_files='["values/values.yml","values/gcp-batch.yml"]'
+  --extra-vars "gcp_batch_region=us-east4" \
+  --extra-vars "galaxy_values_files=['values/values.yml','values/gcp-batch.yml']"
 ```
 
 #### What Gets Configured Automatically

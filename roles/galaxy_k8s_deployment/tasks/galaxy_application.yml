@@ -223,6 +223,20 @@
 # Install Galaxy
 # ============================================================================
 
+- name: Create ConfigMap for Galaxy static images
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-static-images
+        namespace: galaxy
+      binaryData:
+        galaxy-project-logo-white-square.png: "{{ lookup('file', 'files/galaxy-project-logo-white-square.png') | b64encode }}"
+        anvil-project-logo-white.png: "{{ lookup('file', 'files/anvil-project-logo-white.png') | b64encode }}"
+
 - name: Prepare Galaxy values files list
   set_fact:
     _galaxy_values_files: >-
