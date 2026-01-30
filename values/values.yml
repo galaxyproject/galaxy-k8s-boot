@@ -50,15 +50,25 @@ configs:
       # The URL linked by the "Galaxy/brand" text
       logo_url: https://anvil.terra.bio/#workspaces
       # The brand image source
-      logo_src: /static/images/galaxy_project_logo_white_square.png
+      logo_src: /static/images/galaxy-project-logo-white-square.png
       # The custom brand image source
-      logo_src_secondary: /static/images/anvilwhite.png
+      logo_src_secondary: /static/images/anvil-project-logo-white.png
       enable_quotas: true
   job_conf.yml:
     limits:
       - type: total_walltime
         window: 1  # number in days
         value: '24:00:00'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
+
+extraVolumes:
+  - name: static-images
+    configMap:
+      name: galaxy-static-images
+
+extraVolumeMounts:
+  - name: static-images
+    mountPath: /galaxy/server/static/images
+    readOnly: true
 
 extraFileMappings:
   /galaxy/server/static/welcome.html:
