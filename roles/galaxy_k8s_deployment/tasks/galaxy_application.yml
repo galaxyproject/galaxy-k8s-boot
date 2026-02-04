@@ -23,58 +23,31 @@
     kubeconfig: "{{ kubeconfig_path }}"
 
 # ============================================================================
-# Galaxy Data Restoration - Parse Mode
+# CNPG Skip-Initdb Plugin (for PostgreSQL data reuse)
 # ============================================================================
-# Parse restoration mode EARLY so we can deploy CNPG plugin before galaxy-deps
-
-- name: Display restoration mode
-  debug:
-    msg: "Galaxy restoration mode: {{ 'Auto-detect and restore' if restore_galaxy else 'Fresh installation' }}"
-
-# ============================================================================
-# CNPG Skip-Initdb Plugin Deployment
-# ============================================================================
-# CRITICAL: Deploy plugin BEFORE galaxy-deps (which creates PostgreSQL cluster)
-# Plugin must be running to intercept CNPG's initdb request
-# As soon as the plugin is deployed, it does a no-op on initdb and allows PostgreSQL
-# to reuse existing data directories.
-
-- name: Deploy CNPG skip-initdb plugin for database restoration
+# IMPORTANT: Plugin must be deployed to same namespace as CNPG operator (galaxy-deps)
+# See docs/CNPG_SKIP_INITDB_INTEGRATION.md for details
+- name: Deploy CNPG skip-initdb plugin for PostgreSQL data reuse
   kubernetes.core.k8s:
+    template:
+      path: cnpg_skip_initdb_plugin.yaml.j2
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
-    definition: "{{ lookup('template', 'templates/cnpg_skip_initdb_plugin.yaml.j2') }}"
-  when: restore_galaxy
+  when: cnpg_skip_initdb_enabled | default(false) | bool
 
-- name: Wait for CNPG plugin pod to be ready
+- name: Wait for skip-initdb plugin deployment to be available
   kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Pod
-    namespace: "{{ cnpg_skip_initdb_namespace }}"
-    label_selectors:
-      - "app=skip-initdb"
-    kubeconfig: "{{ kubeconfig_path }}"
-  register: plugin_pod
-  until:
-    - plugin_pod.resources | length > 0
-    - plugin_pod.resources[0].status.phase == "Running"
-  retries: 10
-  delay: 3
-  when: restore_galaxy
-
-- name: Display CNPG plugin status
-  debug:
-    msg: "CNPG skip-initdb plugin deployed. Plugin will skip initdb."
-  when: restore_galaxy
-- name: Ensure CNPG plugin is NOT deployed in fresh install mode
-  kubernetes.core.k8s:
-    state: absent
-    api_version: v1
+    api_version: apps/v1
     kind: Deployment
     name: skip-initdb
-    namespace: "{{ cnpg_skip_initdb_namespace }}"
+    namespace: "{{ cnpg_skip_initdb_namespace | default('galaxy-deps') }}"
     kubeconfig: "{{ kubeconfig_path }}"
-  when: not restore_galaxy
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 120
+  when: cnpg_skip_initdb_enabled | default(false) | bool
 
 - name: Helm install galaxy-deps
   kubernetes.core.helm:
@@ -172,6 +145,93 @@
   when: not restore_galaxy or detected_galaxy_pvc_uuid | default('') == ''
 
 # ============================================================================
+# Galaxy PVC Detection and Restoration
+# ============================================================================
+# Priority order:
+# 1. If restore_galaxy_pvc_uuid is explicitly provided, use it
+# 2. Else if enable_persistent_data_reuse, auto-detect from NFS exports
+# 3. If found, create static PV/PVC and set existingClaim
+
+# Step 1: Use explicit UUID if provided
+- name: Set restore UUID from explicit parameter
+  set_fact:
+    detected_galaxy_pvc_uuid: "{{ restore_galaxy_pvc_uuid }}"
+  when: restore_galaxy_pvc_uuid | default('') != ''
+
+# Step 2: Auto-detect if no explicit UUID but persistent data reuse is enabled
+- name: Check for existing Galaxy NFS exports
+  shell: |
+    # Note: glob must be expanded inside container, so we use sh -c
+    for dir in $(kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+      sh -c 'ls -d /export/pvc-* 2>/dev/null'); do
+      # Check if this looks like a Galaxy data directory (has objects/ subdirectory)
+      if kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+        test -d "$dir/objects" 2>/dev/null; then
+        # Extract UUID from path: /export/pvc-<uuid>
+        basename "$dir" | sed 's/^pvc-//'
+        exit 0
+      fi
+    done
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: auto_detected_uuid
+  ignore_errors: true
+  when:
+    - restore_galaxy_pvc_uuid | default('') == ''
+    - enable_persistent_data_reuse | default(true) | bool
+
+- name: Set restore UUID from auto-detection
+  set_fact:
+    detected_galaxy_pvc_uuid: "{{ auto_detected_uuid.stdout | trim }}"
+  when:
+    - restore_galaxy_pvc_uuid | default('') == ''
+    - enable_persistent_data_reuse | default(true) | bool
+    - auto_detected_uuid.stdout is defined
+    - auto_detected_uuid.stdout | trim != ''
+
+- name: Display detected Galaxy PVC UUID
+  debug:
+    msg: "Detected existing Galaxy PVC UUID: {{ detected_galaxy_pvc_uuid }}"
+  when: detected_galaxy_pvc_uuid is defined and detected_galaxy_pvc_uuid != ''
+
+# Step 3: Perform restoration if UUID found (explicit or auto-detected)
+- name: Attempt Galaxy PVC restoration
+  block:
+    - name: Set restore_galaxy_pvc_uuid for include
+      set_fact:
+        restore_galaxy_pvc_uuid: "{{ detected_galaxy_pvc_uuid }}"
+
+    - name: Include Galaxy PVC restoration tasks
+      ansible.builtin.include_tasks: restore_galaxy_pvc.yml
+
+    - name: Set Galaxy Helm values for restore mode
+      set_fact:
+        galaxy_helm_extra_sets:
+          - value: "galaxy.persistence.existingClaim=galaxy-galaxy-pvc"
+            value_type: string
+          - value: "galaxy.persistence.storageClass="
+            value_type: string
+
+  rescue:
+    - name: Log restoration failure
+      debug:
+        msg: |
+          WARNING: Galaxy PVC restoration failed. Falling back to fresh deployment.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+    - name: Clear restore variables to trigger fresh deployment
+      set_fact:
+        detected_galaxy_pvc_uuid: ""
+        galaxy_helm_extra_sets: []
+
+  when: detected_galaxy_pvc_uuid | default('') != ''
+
+- name: Set Galaxy Helm values for fresh deployment
+  set_fact:
+    galaxy_helm_extra_sets: []
+  when: detected_galaxy_pvc_uuid | default('') == ''
+
+# ============================================================================
 # GCP Batch: NFS Server Configuration
 # ============================================================================
 # RKE2 without a cloud controller doesn't provision LoadBalancer external IPs.
@@ -181,7 +241,6 @@
 - name: Get node internal IP for NFS access
   set_fact:
     nfs_server: "{{ ansible_default_ipv4.address }}"
-  when: enable_gcp_batch | default(false) | bool
 
 - name: Verify NFS service exists
   kubernetes.core.k8s_info:
@@ -191,14 +250,11 @@
     namespace: nfs-provisioner
     kubeconfig: "{{ kubeconfig_path }}"
   register: nfs_service_info
-  when: enable_gcp_batch | default(false) | bool
 
 - name: Fail if NFS service not found
   fail:
     msg: "NFS service not found. Make sure NFS setup completed successfully."
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_service_info.resources | length == 0
+  when: nfs_service_info.resources | length == 0
 
 - name: Patch NFS service with node internal IP as externalIP
   kubernetes.core.k8s:
@@ -212,12 +268,10 @@
       spec:
         externalIPs:
           - "{{ nfs_server }}"
-  when: enable_gcp_batch | default(false) | bool
 
 - name: Display NFS server access method
   debug:
     msg: "Using node internal IP for NFS: {{ nfs_server }} (accessible from GCP Batch VMs in same VPC)"
-  when: enable_gcp_batch | default(false) | bool
 
 # ============================================================================
 # Install Galaxy
@@ -267,21 +321,25 @@
     chart_version: "{{ galaxy_chart_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
     update_repo_cache: true
+    wait: true
+    wait_timeout: "600s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    values: "{{ _helm_values | combine(_helm_values_skip_initdb if (reuse_existing_data | default(false) | bool) else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) }}"
   vars:
-    _helm_values_base:
+    _helm_values:
       persistence:
         size: "{{ galaxy_persistence_size }}"
       postgresql:
         galaxyDatabasePassword: "{{ galaxy_db_password }}"
+        cluster:
+          plugins:
+            - name: "{{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}"
       configs:
         galaxy.yml:
           galaxy:
-            single_user: "{{ galaxy_user }}"
-            admin_users: "{{ galaxy_user }}"
             master_api_key: "{{ galaxy_api_key | default(omit) }}"
+        # Note: gcp_batch runner config is set after PVC detection via ConfigMap update
       jobs:
         rules:
           tpv_rules_local.yml:
@@ -289,34 +347,26 @@
               k8s:
                 max_cores: "{{ galaxy_job_max_cores }}"
                 max_mem: "{{ galaxy_job_max_mem }}"
-    _helm_values_gcp_batch:
-      configs:
-        job_conf.yml:
-          runners:
-            gcp_batch:
-              nfs_server: "{{ nfs_server }}"
-    _helm_values_cnpg_plugin:
+    _helm_values_skip_initdb:
       postgresql:
         cluster:
-          plugins:
-            - name: "{{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}"
+          annotations:
+            cnpg.io/skip-initdb: "true"
 
 # ============================================================================
 # GCP Batch: NFS Export Path Detection
 # ============================================================================
-- name: Wait for Galaxy PVC to be created
+- name: Wait for Galaxy PVC to be bound
   kubernetes.core.k8s_info:
     api_version: v1
     kind: PersistentVolumeClaim
     name: galaxy-galaxy-pvc
     namespace: galaxy
     kubeconfig: "{{ kubeconfig_path }}"
-    wait: true
-    wait_condition:
-      type: Bound
-      status: "True"
-    wait_timeout: 300
-  when: enable_gcp_batch | default(false) | bool
+  register: galaxy_pvc
+  until: galaxy_pvc.resources | length > 0 and galaxy_pvc.resources[0].status.phase == "Bound"
+  retries: 30
+  delay: 10
 
 - name: Detect NFS export path for Galaxy PVC
   shell: |
@@ -329,29 +379,23 @@
   retries: 10
   delay: 3
   until: nfs_export_detection.stdout != ""
-  when: enable_gcp_batch | default(false) | bool
 
 - name: Set NFS export path for Galaxy database
   set_fact:
     nfs_export_path: "{{ nfs_export_detection.stdout }}"
   when:
-    - enable_gcp_batch | default(false) | bool
     - nfs_export_detection.stdout is defined
     - nfs_export_detection.stdout != ""
 
 - name: Display detected NFS export path
   debug:
     msg: "Detected NFS export path for Galaxy PVC: {{ nfs_export_path }}"
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_export_path is defined
+  when: nfs_export_path is defined
 
 - name: Fail if NFS export path not detected
   fail:
     msg: "Could not detect NFS export path for Galaxy PVC. Available exports: {{ nfs_export_detection.stdout_lines | default('none') }}"
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_export_path is not defined or nfs_export_path == ""
+  when: nfs_export_path is not defined or nfs_export_path == ""
 
 # ============================================================================
 # GCP Batch: Update Configuration and Restart
@@ -364,9 +408,8 @@
     namespace: galaxy
     kubeconfig: "{{ kubeconfig_path }}"
   register: galaxy_configs
-  when: enable_gcp_batch | default(false) | bool
 
-- name: Update job_conf.yml with NFS export path
+- name: Update job_conf.yml with gcp_batch_volumes for NFS access
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
@@ -376,10 +419,9 @@
       metadata:
         name: galaxy-configs
         namespace: galaxy
-      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'nfs_path': nfs_export_path}}}, recursive=True) | to_nice_yaml) }) }}"
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_export_path is defined
+      # gcp_batch_volumes format: "server:/remote_path:/mount_path"
+      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'gcp_batch_volumes': nfs_server ~ ':' ~ nfs_export_path ~ ':/galaxy/server/database'}}}, recursive=True) | to_nice_yaml) }) }}"
+  when: nfs_export_path is defined
 
 - name: Restart Galaxy deployments to pick up configuration changes
   shell: kubectl rollout restart deployment {{ item }} -n galaxy
@@ -389,9 +431,7 @@
     - galaxy-web
     - galaxy-workflow
     - galaxy-job-0
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_export_path is defined
+  when: nfs_export_path is defined
 
 # ============================================================================
 # Persistent Data Reuse: RabbitMQ Credential Synchronization
@@ -410,7 +450,7 @@
       type: Ready
       status: "True"
     wait_timeout: 300
-  when: restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+  when: enable_persistent_data_reuse | default(true) | bool
 
 - name: Get expected RabbitMQ credentials from secret
   kubernetes.core.k8s_info:
@@ -420,14 +460,14 @@
     namespace: galaxy
     kubeconfig: "{{ kubeconfig_path }}"
   register: rabbitmq_secret
-  when: restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+  when: enable_persistent_data_reuse | default(true) | bool
 
 - name: Decode expected RabbitMQ username
   set_fact:
     expected_rabbitmq_user: "{{ rabbitmq_secret.resources[0].data.username | b64decode }}"
     expected_rabbitmq_pass: "{{ rabbitmq_secret.resources[0].data.password | b64decode }}"
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - rabbitmq_secret.resources | length > 0
 
 - name: Check existing RabbitMQ users
@@ -438,14 +478,14 @@
   register: rabbitmq_users_json
   ignore_errors: true
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - expected_rabbitmq_user is defined
 
 - name: Parse RabbitMQ users
   set_fact:
     rabbitmq_existing_users: "{{ rabbitmq_users_json.stdout | from_json | map(attribute='user') | list }}"
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - rabbitmq_users_json.stdout is defined
     - rabbitmq_users_json.stdout != ""
     - rabbitmq_users_json.rc == 0
@@ -454,7 +494,7 @@
   set_fact:
     rabbitmq_user_exists: "{{ expected_rabbitmq_user in rabbitmq_existing_users }}"
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - rabbitmq_existing_users is defined
     - expected_rabbitmq_user is defined
 
@@ -462,7 +502,7 @@
   debug:
     msg: "RabbitMQ expected user '{{ expected_rabbitmq_user }}' exists: {{ rabbitmq_user_exists | default(false) }}"
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - expected_rabbitmq_user is defined
 
 - name: Create expected RabbitMQ user (credential sync)
@@ -472,7 +512,7 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists
 
@@ -483,7 +523,7 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists
 
@@ -494,7 +534,7 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists
 
@@ -502,6 +542,6 @@
   debug:
     msg: "Created RabbitMQ user '{{ expected_rabbitmq_user }}' with administrator permissions"
   when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
+    - enable_persistent_data_reuse | default(true) | bool
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists
