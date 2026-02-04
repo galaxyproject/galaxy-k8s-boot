@@ -1,0 +1,101 @@
+ingress:
+  enabled: true
+  ingressClassName: ""
+  canary:
+    enabled: false
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+  - host: ~
+    paths:
+    - path: /
+  path: /
+
+persistence:
+  storageClass: nfs
+  size: 20Gi
+
+cvmfs:
+  deploy: false
+  deployPostInstallFix: true
+  cvmfscsi:
+    cache:
+      local:
+        enabled: true
+        pvc:
+          storageClass: nfs
+          name: cvmfs-local-cache
+      alien:
+        enabled: false
+        pvc:
+          name: cvmfs-alien-cache
+    logVerbosityLevel: 5
+
+postgresql:
+  persistence:
+    storageClass: postgres-storage
+
+rabbitmq:
+  persistence:
+    storageClassName: blockstorage
+
+configs:
+  galaxy.yml:
+    galaxy:
+      enable_beta_gdpr: true
+      require_login: false
+      show_welcome_with_login: true
+      allow_user_creation: true
+      allow_local_account_creation: true
+      single_user: null
+      tus_upload_store: /galaxy/server/database/tmp/tus_upload_store
+      # The URL linked by the "Galaxy/brand" text
+      logo_url: https://anvil.terra.bio/#workspaces
+      # The brand image source
+      logo_src: /static/images/galaxy_project_logo_white_square.png
+      # The custom brand image source
+      logo_src_secondary: /static/images/anvilwhite.png
+      enable_quotas: true
+      cleanup_job: never
+      admin_users: admin@galaxyproject.org,suderman@jhu.org
+      job_metrics:
+        - type: core
+        - type: cgroup
+        - type: cpuinfo
+        - type: meminfo
+        - type: uname
+  job_conf.yml:
+    limits:
+      - type: total_walltime
+        window: 1  # number in days
+        value: '24:00:00'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
+
+extraFileMappings:
+  /galaxy/server/static/welcome.html:
+    applyToWeb: true
+    applyToNginx: true
+    content: |
+      <!DOCTYPE html>
+      <html lang="en">
+          <head>
+              <meta charset="utf-8" />
+              <link rel="stylesheet" href="dist/base.css" type="text/css" />
+          </head>
+          <body class="m-0">
+              <div class="py-4">
+                  <div class="container">
+                      <div class="row mb-4">
+                          <div class="col-md-12">
+                              <h2>Welcome to Galaxy</h2>
+                              <p>
+                                  This is a Galaxy instance running on the Google Cloud Platform and 
+                                  is configured to dispatch jobs to Google Batch.  Since this is not a public
+                                  instance, or at least is not advertised publicly, the load on the system will
+                                  be minimal and you may find it to be more responsive than testing on main.
+                              </p>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </body>
+      </html>

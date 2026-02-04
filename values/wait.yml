@@ -1,0 +1,5 @@
+webHandlers:
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 20
+    failureThreshold: 240  # Allow up to ~20 minutes
