@@ -431,7 +431,112 @@
     - galaxy-web
     - galaxy-workflow
     - galaxy-job-0
-  when: nfs_export_path is defined
+  when:
+    - nfs_export_path is defined
+    - not (enable_pulsar_gcp_batch | default(false) | bool)
+
+# ============================================================================
+# Pulsar GCP Batch: RabbitMQ and Galaxy URL Configuration
+# ============================================================================
+# The PulsarGcpBatchJobRunner needs:
+#   - amqp_url: RabbitMQ accessible from both Galaxy pods and GCP Batch VMs
+#   - galaxy_url: Galaxy accessible from GCP Batch VMs for file staging
+# We expose RabbitMQ via NodePort and patch the ConfigMap after deployment.
+
+- name: Create NodePort service for RabbitMQ (Pulsar GCP Batch access)
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: galaxy-rabbitmq-nodeport
+        namespace: galaxy
+      spec:
+        type: NodePort
+        ports:
+          - port: 5672
+            targetPort: 5672
+            nodePort: "{{ pulsar_gcp_rabbitmq_nodeport | default(30672) }}"
+            protocol: TCP
+        selector:
+          app.kubernetes.io/component: rabbitmq
+          app.kubernetes.io/name: rabbitmq-server
+  when: enable_pulsar_gcp_batch | default(false) | bool
+
+- name: Get RabbitMQ credentials from secret (Pulsar GCP)
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: galaxy-rabbitmq-server-default-user
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: pulsar_rabbitmq_secret
+  when: enable_pulsar_gcp_batch | default(false) | bool
+
+- name: Decode RabbitMQ credentials for AMQP URL
+  set_fact:
+    pulsar_rabbitmq_user: "{{ pulsar_rabbitmq_secret.resources[0].data.username | b64decode }}"
+    pulsar_rabbitmq_pass: "{{ pulsar_rabbitmq_secret.resources[0].data.password | b64decode }}"
+  when:
+    - enable_pulsar_gcp_batch | default(false) | bool
+    - pulsar_rabbitmq_secret.resources | length > 0
+
+- name: Construct AMQP URL for Pulsar GCP runner
+  set_fact:
+    pulsar_amqp_url: "amqp://{{ pulsar_rabbitmq_user }}:{{ pulsar_rabbitmq_pass }}@{{ nfs_server }}:{{ pulsar_gcp_rabbitmq_nodeport | default(30672) }}//"
+    pulsar_galaxy_url: "http://{{ nfs_server }}/"
+  when:
+    - enable_pulsar_gcp_batch | default(false) | bool
+    - pulsar_rabbitmq_user is defined
+
+- name: Display Pulsar GCP configuration
+  debug:
+    msg: |
+      Pulsar GCP Batch configuration:
+        amqp_url: amqp://{{ pulsar_rabbitmq_user }}:***@{{ nfs_server }}:{{ pulsar_gcp_rabbitmq_nodeport | default(30672) }}//
+        galaxy_url: {{ pulsar_galaxy_url }}
+  when:
+    - enable_pulsar_gcp_batch | default(false) | bool
+    - pulsar_amqp_url is defined
+
+- name: Get current job_conf.yml from ConfigMap (Pulsar GCP)
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: galaxy-configs
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: pulsar_galaxy_configs
+  when: enable_pulsar_gcp_batch | default(false) | bool
+
+- name: Update job_conf.yml with amqp_url and galaxy_url for Pulsar GCP runner
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-configs
+        namespace: galaxy
+      data: "{{ pulsar_galaxy_configs.resources[0].data | combine({'job_conf.yml': (pulsar_galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'pulsar_gcp': {'amqp_url': pulsar_amqp_url, 'galaxy_url': pulsar_galaxy_url}}}, recursive=True) | to_nice_yaml) }) }}"
+  when:
+    - enable_pulsar_gcp_batch | default(false) | bool
+    - pulsar_amqp_url is defined
+
+- name: Restart Galaxy deployments for Pulsar GCP configuration
+  shell: kubectl rollout restart deployment {{ item }} -n galaxy
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  loop:
+    - galaxy-web
+    - galaxy-workflow
+    - galaxy-job-0
+  when:
+    - enable_pulsar_gcp_batch | default(false) | bool
+    - pulsar_amqp_url is defined
 
 # ============================================================================
 # Persistent Data Reuse: RabbitMQ Credential Synchronization

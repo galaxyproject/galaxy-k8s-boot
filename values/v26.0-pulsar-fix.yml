@@ -1,0 +1,3 @@
+image:
+  repository: ksuderman/galaxy-pulsar-fix
+  tag: "26.0.rc1"

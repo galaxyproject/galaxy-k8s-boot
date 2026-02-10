@@ -20,6 +20,7 @@ PROJECT="anvil-and-terra-development"
 ZONE="us-east4-c"
 RESTORE_GALAXY_PVC_UUID=""
 REUSE_EXISTING_DATA="false"
+ENABLE_PULSAR_GCP_BATCH="false"
 
 # Parse command line arguments
 DISK_NAME=""
@@ -48,6 +49,7 @@ Options:
   -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
   -p, --project PROJECT             GCP project ID (default: $PROJECT)
   -r, --git-repo REPO               Git repository URL (default: $GIT_REPO)
+      --pulsar-gcp-batch            Enable Pulsar GCP Batch runner (configures AMQP and galaxy_url)
       --reuse-existing-data         Sets the reuse_existing_data flag to true (default $REUSE_EXISTING_DATA)
   -s, --disk-size SIZE              Size of NFS persistent disk (default: $DISK_SIZE)
   -z, --zone ZONE                   GCP zone (default: $ZONE)
@@ -152,6 +154,10 @@ while [[ $# -gt 0 ]]; do
         --restore-galaxy-pvc-uuid)
             RESTORE_GALAXY_PVC_UUID="$2"
             shift 2
+            ;;
+        --pulsar-gcp-batch)
+            ENABLE_PULSAR_GCP_BATCH="true"
+            shift
             ;;
         --reuse-existing-data)
             REUSE_EXISTING_DATA="true"
@@ -376,6 +382,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
     RESTORE_GALAXY_PVC_UUID="${RESTORE_GALAXY_PVC_UUID}"
     REUSE_EXISTING_DATA="${REUSE_EXISTING_DATA}"
+    ENABLE_PULSAR_GCP_BATCH="${ENABLE_PULSAR_GCP_BATCH}"
 EOF
 
 cat >> "$TEMP_USER_DATA" << 'EOF'
@@ -406,7 +413,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_JSON}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}}" playbook.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}, \"enable_pulsar_gcp_batch\": ${ENABLE_PULSAR_GCP_BATCH}}" playbook.yml
 
     echo "[`date`] - User data script completed."
     '

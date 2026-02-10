@@ -115,8 +115,8 @@ enable_persistent_data_reuse: true
 # The PVC name is always "galaxy-galaxy-pvc" (from Helm release name "galaxy").
 restore_galaxy_pvc_uuid: ""     # e.g., "57681430-eb8f-460f-9eae-294e061c579e"
 
-# GCP Batch Configuration
-# Set enable_gcp_batch=true to configure Galaxy for GCP Batch job runner
+# GCP Batch Configuration (Direct Runner)
+# Set enable_gcp_batch=true to configure Galaxy for the direct GCP Batch job runner
 # This will:
 #   - Detect and configure NFS LoadBalancer IP
 #   - Auto-detect NFS export path for Galaxy PVC
@@ -125,6 +125,18 @@ restore_galaxy_pvc_uuid: ""     # e.g., "57681430-eb8f-460f-9eae-294e061c579e"
 enable_gcp_batch: false
 gcp_batch_service_account_email: ""
 gcp_batch_region: "us-east4"
+
+# Pulsar GCP Batch Configuration (Coexecution Runner)
+# Set enable_pulsar_gcp_batch=true to configure Galaxy for the Pulsar GCP Batch runner.
+# This uses PulsarGcpBatchJobRunner which runs tools on GCP Batch via Pulsar coexecution.
+# The playbook will:
+#   - Expose RabbitMQ via NodePort for GCP Batch VM access
+#   - Detect RabbitMQ credentials and construct AMQP URL
+#   - Set galaxy_url for Pulsar file staging
+#   - Update job_conf.yml with amqp_url and galaxy_url
+#   - Restart Galaxy deployments to apply changes
+enable_pulsar_gcp_batch: false
+pulsar_gcp_rabbitmq_nodeport: 30672
 
 # Pulsar Application Configuration
 pulsar_chart: cloudve/pulsar
