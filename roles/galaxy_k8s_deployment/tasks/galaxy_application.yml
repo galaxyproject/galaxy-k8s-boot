@@ -421,7 +421,9 @@
         namespace: galaxy
       # gcp_batch_volumes format: "server:/remote_path:/mount_path"
       data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'gcp_batch_volumes': nfs_server ~ ':' ~ nfs_export_path ~ ':/galaxy/server/database'}}}, recursive=True) | to_nice_yaml) }) }}"
-  when: nfs_export_path is defined
+  when:
+    - nfs_export_path is defined
+    - not (enable_pulsar_gcp_batch | default(false) | bool)
 
 - name: Restart Galaxy deployments to pick up configuration changes
   shell: kubectl rollout restart deployment {{ item }} -n galaxy
@@ -462,7 +464,7 @@
             protocol: TCP
         selector:
           app.kubernetes.io/component: rabbitmq
-          app.kubernetes.io/name: rabbitmq-server
+          app.kubernetes.io/name: galaxy-rabbitmq-server
   when: enable_pulsar_gcp_batch | default(false) | bool
 
 - name: Get RabbitMQ credentials from secret (Pulsar GCP)

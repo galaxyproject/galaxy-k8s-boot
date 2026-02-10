@@ -18,10 +18,12 @@ configs:
     runners:
       pulsar_gcp:
         load: galaxy.jobs.runners.pulsar:PulsarGcpBatchJobRunner
-        # amqp_url and galaxy_url are injected by the playbook via ConfigMap patching
-        # after RabbitMQ is running and the node IP is known.
-        # amqp_url: amqp://USER:PASS@NODE_IP:30672//
-        # galaxy_url: http://NODE_IP/
+        # Placeholder amqp_url ensures the runner creates a MessageJobClientManager
+        # instead of a PollingJobClientManager (which lacks ensure_has_status_update_callback
+        # and crashes the job handler). The real amqp_url and galaxy_url are injected by
+        # the playbook via ConfigMap patching after RabbitMQ is running.
+        amqp_url: "amqp://placeholder:placeholder@localhost:5672//"
+        galaxy_url: "http://localhost/"
     execution:
       default: tpv_dispatcher
       environments:
