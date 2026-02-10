@@ -1,0 +1,4 @@
+configs:
+  galaxy.yml:
+    galaxy:
+      admin_users: suderman@jhu.edu,admin@galaxyproject.org
