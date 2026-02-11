@@ -460,7 +460,7 @@
         ports:
           - port: 5672
             targetPort: 5672
-            nodePort: {{ pulsar_gcp_rabbitmq_nodeport | default(30672) | int }}
+            nodePort: 30672
             protocol: TCP
         selector:
           app.kubernetes.io/component: rabbitmq
