@@ -37,6 +37,7 @@ configs:
           machine_type: n2-standard-4
           docker_extra_volumes: "/cvmfs/data.galaxyproject.org:/cvmfs/data.galaxyproject.org:ro,/cvmfs/cloud.galaxyproject.org:/cvmfs/cloud.galaxyproject.org:ro"
           custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2026-01-24
+          delete_batch_job: "false"
     tools:
       - environment: local
         id: upload1
