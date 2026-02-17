@@ -289,12 +289,7 @@
               k8s:
                 max_cores: "{{ galaxy_job_max_cores }}"
                 max_mem: "{{ galaxy_job_max_mem }}"
-    _helm_values_gcp_batch:
-      configs:
-        job_conf.yml:
-          runners:
-            gcp_batch:
-              nfs_server: "{{ nfs_server }}"
+    _helm_values_gcp_batch: {}
     _helm_values_cnpg_plugin:
       postgresql:
         cluster:
@@ -366,7 +361,7 @@
   register: galaxy_configs
   when: enable_gcp_batch | default(false) | bool
 
-- name: Update job_conf.yml with NFS export path
+- name: Update job_conf.yml with gcp_batch_volumes for NFS access
   kubernetes.core.k8s:
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
@@ -376,7 +371,8 @@
       metadata:
         name: galaxy-configs
         namespace: galaxy
-      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'nfs_path': nfs_export_path}}}, recursive=True) | to_nice_yaml) }) }}"
+      # gcp_batch_volumes format: "server:/remote_path:/mount_path"
+      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'gcp_batch_volumes': nfs_server ~ ':' ~ nfs_export_path ~ ':/galaxy/server/database'}}}, recursive=True) | to_nice_yaml) }) }}"
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
