@@ -299,18 +299,17 @@
 # ============================================================================
 # GCP Batch: NFS Export Path Detection
 # ============================================================================
-- name: Wait for Galaxy PVC to be created
+- name: Wait for Galaxy PVC to be bound
   kubernetes.core.k8s_info:
     api_version: v1
     kind: PersistentVolumeClaim
     name: galaxy-galaxy-pvc
     namespace: galaxy
     kubeconfig: "{{ kubeconfig_path }}"
-    wait: true
-    wait_condition:
-      type: Bound
-      status: "True"
-    wait_timeout: 300
+  register: galaxy_pvc
+  until: galaxy_pvc.resources | length > 0 and galaxy_pvc.resources[0].status.phase == "Bound"
+  retries: 30
+  delay: 10
   when: enable_gcp_batch | default(false) | bool
 
 - name: Detect NFS export path for Galaxy PVC
