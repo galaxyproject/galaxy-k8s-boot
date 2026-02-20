@@ -1,3 +1,9 @@
+# Increase startup probe timeout to allow for CVMFS tool loading
+web:
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120  # Allow up to ~20 minutes
 
 configs:
   job_conf.yml:
@@ -11,10 +17,9 @@ configs:
 #        service_account_file: /etc/secrets/galaxy/key.json
         service_account_email: galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com
 
-        # NFS configuration (required)
-        # nfs_server is set dynamically by the playbook via helm_values_gcp_batch
-        nfs_path: /             # Root path on NFS server. This will be updated by the playbook.
-        nfs_mount_path: /galaxy/server/database # Mount point in Batch VMs
+        # NFS/Volume configuration (required)
+        # Format: "server:/remote_path:/mount_path" - set dynamically by playbook via ConfigMap update
+        # gcp_batch_volumes: "NFS_SERVER_IP:/export/pvc-xxx:/galaxy/server/database"
 
         # Network configuration (required for NFS access)
         network: default
@@ -29,13 +34,14 @@ configs:
 
         # Container settings
         use_container: true
-        container_image: ksuderman/galaxy-min:25.1-batch-2  # fallback if tool doesn't specify
+        # Note: container_image comes from tool requirements via Galaxy's container finder
         galaxy_user_id: 10001
         galaxy_group_id: 10001
+        docker_extra_volumes: "/cvmfs/data.galaxyproject.org:/cvmfs/data.galaxyproject.org:ro,/cvmfs/cloud.galaxyproject.org:/cvmfs/cloud.galaxyproject.org:ro"
 
         # Custom VM image with CVMFS pre-configured (update date as needed)
 #        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2025-09-26
-        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-batch-debian12-20251118
+        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2026-01-24
         # Job execution settings
         max_retry_count: 3
         max_run_duration: 3600s
@@ -47,9 +53,6 @@ configs:
           runner: local
         gcp_batch:
           runner: gcp_batch
-          # Override runner parameters if needed
-          container_image: ubuntu:20.04
-          machine_type: e2-standard-4
     destinations:
       - id: gcp_batch_default
         runner: gcp_batch
