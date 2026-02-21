@@ -30,21 +30,21 @@
   ansible.builtin.debug:
     msg: "Installed Helm version: {{ helm_version_output.stdout }}"
 
-- name: Create Helm config directory for ubuntu user
+- name: Create Helm config directory for default user
   ansible.builtin.file:
-    path: /home/ubuntu/.config/helm
+    path: /home/{{ default_user }}/.config/helm
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
     mode: '0755'
   become: true
 
-- name: Create Helm cache directory for ubuntu user
+- name: Create Helm cache directory for default user
   ansible.builtin.file:
-    path: /home/ubuntu/.cache/helm
+    path: /home/{{ default_user }}/.cache/helm
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
     mode: '0755'
   become: true
 
@@ -52,9 +52,9 @@
   ansible.builtin.shell: |
     /usr/local/bin/helm repo add stable https://charts.helm.sh/stable
   become: true
-  become_user: ubuntu
+  become_user: "{{ default_user }}"
   environment:
-    HOME: /home/ubuntu
+    HOME: /home/{{ default_user }}
   failed_when: false
   changed_when: false
 
@@ -62,9 +62,9 @@
   ansible.builtin.shell: |
     /usr/local/bin/helm repo add cloudve https://raw.githubusercontent.com/CloudVE/helm-charts/master/
   become: true
-  become_user: ubuntu
+  become_user: "{{ default_user }}"
   environment:
-    HOME: /home/ubuntu
+    HOME: /home/{{ default_user }}
   failed_when: false
   changed_when: false
 
@@ -72,9 +72,9 @@
   ansible.builtin.shell: |
     /usr/local/bin/helm repo update
   become: true
-  become_user: ubuntu
+  become_user: "{{ default_user }}"
   environment:
-    HOME: /home/ubuntu
+    HOME: /home/{{ default_user }}
   failed_when: false
   changed_when: false
 
@@ -82,9 +82,9 @@
   ansible.builtin.shell: |
     /usr/local/bin/helm repo list
   become: true
-  become_user: ubuntu
+  become_user: "{{ default_user }}"
   environment:
-    HOME: /home/ubuntu
+    HOME: /home/{{ default_user }}
   register: helm_repos_check
   failed_when: false
   changed_when: false

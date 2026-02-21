@@ -3,11 +3,13 @@
 rke2_version: v1.35.0+rke2r1  # https://github.com/rancher/rke2/tags
 helm_version: v3.19.5  # https://github.com/helm/helm/tags
 
-# System packages to install (Ubuntu focused)
+# Default user (Ubuntu uses 'ubuntu', Debian uses 'debian' on GCP)
+default_user: "{{ 'ubuntu' if ansible_distribution | default('Debian') == 'Ubuntu' else 'debian' }}"
+
+# System packages to install (works on both Ubuntu and Debian)
 base_packages:
   - python3
   - python3-pip
-  - python3-openshift
   - nfs-common
   - curl
   - wget
