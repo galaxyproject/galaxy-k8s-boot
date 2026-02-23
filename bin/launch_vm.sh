@@ -15,7 +15,8 @@ GALAXY_DEPS_VERSION="1.1.1"
 GIT_BRANCH="master"
 GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
 MACHINE_IMAGE="galaxy-k8s-boot-v2026-01-20"
-MACHINE_TYPE="e2-standard-8"
+#MACHINE_IMAGE="galaxy-k8s-boot-debian12-v2026-02-20"
+MACHINE_TYPE="e2-standard-4"
 PROJECT="anvil-and-terra-development"
 VM_USER="debian"
 ZONE="us-east4-c"
@@ -23,6 +24,7 @@ RESTORE_GALAXY=false
 
 # Parse command line arguments
 DISK_NAME=""
+DRY_RUN=""
 POSTGRES_DISK_NAME=""
 EPHEMERAL_ONLY=false
 GALAXY_VALUES_FILES=()  # Array to hold multiple values files
@@ -41,6 +43,7 @@ Required Arguments:
 Options:
   -b, --git-branch BRANCH           Git branch to deploy (default: $GIT_BRANCH)
   -d, --disk-name DISK_NAME         Name of NFS persistent disk (default: galaxy-data-INSTANCE_NAME)
+      --dry-run                     Saves the cloud-init user data and exits
   -e, --ephemeral-only              Create VM without persistent disk
   -f, --values FILE                 Helm values file (can be specified multiple times, default: values/values.yml)
   -i, --machine-image IMAGE         Machine image name (default: $MACHINE_IMAGE)
@@ -97,6 +100,10 @@ while [[ $# -gt 0 ]]; do
             DISK_NAME="$2"
             shift 2
             ;;
+        --dry-run)
+        	DRY_RUN="yes"   
+        	shift     	
+        	;;
         -e|--ephemeral-only)
             EPHEMERAL_ONLY=true
             shift
@@ -180,6 +187,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required arguments
+echo "Validatin required arguments"
 if [ -z "$INSTANCE_NAME" ]; then
     echo "Error: Instance name is required"
     usage
@@ -282,8 +290,12 @@ else
 fi
 
 # Generate custom user_data.sh with values baked in
-TEMP_USER_DATA=$(mktemp /tmp/user_data.XXXXXX.sh)
-trap "rm -f $TEMP_USER_DATA" EXIT
+if [[ $DRY_RUN = "yes" ]] ; then
+	TEMP_USER_DATA="./cloud-config.txt"
+else
+	TEMP_USER_DATA=$(mktemp /tmp/user_data.XXXXXX)
+	trap "rm -f $TEMP_USER_DATA" EXIT
+fi
 
 # Add the configuration values directly into the script
 if [ "$EPHEMERAL_ONLY" = false ]; then
@@ -360,14 +372,14 @@ runcmd:
     # Set disk ownership
     VM_USER="PLACEHOLDER_VM_USER"
     if [ -d /mnt/block_storage ]; then
-      chown \$VM_USER:\$VM_USER /mnt/block_storage
+      chown $VM_USER:$VM_USER /mnt/block_storage
     fi
     if [ -d /mnt/postgres_storage ]; then
-      chown \$VM_USER:\$VM_USER /mnt/postgres_storage
+      chown $VM_USER:$VM_USER /mnt/postgres_storage
     fi
 
     # Run ansible-pull as VM_USER
-    sudo -u \$VM_USER bash -c '
+    sudo -u $VM_USER bash -c '
     export HOME=/home/PLACEHOLDER_VM_USER
     HOST_IP=$(curl -s ifconfig.me)
 
@@ -427,6 +439,11 @@ else
 fi
 
 echo "ℹ Generated custom user_data.sh at $TEMP_USER_DATA"
+
+if [[ $DRY_RUN = "yes" ]] ; then
+	echo "Dry run complete."
+	exit
+fi
 
 # Launch the VM
 echo "Launching VM '$INSTANCE_NAME'..."
