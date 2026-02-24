@@ -14,12 +14,7 @@ configs:
         # Basic GCP settings
         project_id: anvil-and-terra-development
         region: us-east4
-#        service_account_file: /etc/secrets/galaxy/key.json
         service_account_email: galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com
-
-        # NFS/Volume configuration (required)
-        # Format: "server:/remote_path:/mount_path" - set dynamically by playbook via ConfigMap update
-        # gcp_batch_volumes: "NFS_SERVER_IP:/export/pvc-xxx:/galaxy/server/database"
 
         # Network configuration (required for NFS access)
         network: default
@@ -40,8 +35,6 @@ configs:
         docker_extra_volumes: "/cvmfs/data.galaxyproject.org:/cvmfs/data.galaxyproject.org:ro,/cvmfs/cloud.galaxyproject.org:/cvmfs/cloud.galaxyproject.org:ro"
 
         # Custom VM image with CVMFS pre-configured (update date as needed)
-#        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2025-09-26
-#        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2026-01-24
         custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-debian12-v2026-02-24
         # Job execution settings
         max_retry_count: 3
