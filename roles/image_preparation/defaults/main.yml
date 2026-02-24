@@ -10,6 +10,7 @@ default_user: "{{ 'ubuntu' if ansible_distribution | default('Debian') == 'Ubunt
 base_packages:
   - python3
   - python3-pip
+  - cloud-init
   - nfs-common
   - curl
   - wget
