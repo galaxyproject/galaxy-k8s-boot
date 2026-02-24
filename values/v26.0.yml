@@ -1,4 +1,4 @@
 # Galaxy 26.0 RC
 image:
-  repository: ksuderman/galaxy-min
-  tag: "26.0.rc1"
+  repository: quay.io/galaxyproject/galaxy-min
+  tag: "26.0-auto"

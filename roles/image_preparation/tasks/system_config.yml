@@ -57,8 +57,8 @@
   ansible.builtin.file:
     path: /mnt/block_storage
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
     mode: '0755'
   become: true
 
@@ -66,42 +66,42 @@
   ansible.builtin.file:
     path: /mnt/postgres_storage
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
     mode: '0755'
   become: true
 
-- name: Add KUBECONFIG to ubuntu user's .bashrc
+- name: Add KUBECONFIG to default user's .bashrc
   ansible.builtin.lineinfile:
-    path: /home/ubuntu/.bashrc
+    path: /home/{{ default_user }}/.bashrc
     line: 'export KUBECONFIG=/etc/rancher/rke2/rke2.yaml'
     create: true
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
     mode: '0644'
 
-- name: Add RKE2 bin directory to ubuntu user's PATH
+- name: Add RKE2 bin directory to default user's PATH
   ansible.builtin.lineinfile:
-    path: /home/ubuntu/.bashrc
+    path: /home/{{ default_user }}/.bashrc
     line: 'export PATH=/var/lib/rancher/rke2/bin:$PATH'
     create: true
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
     mode: '0644'
 
 - name: Download LS_COLORS configuration
   ansible.builtin.get_url:
     url: https://raw.githubusercontent.com/trapd00r/LS_COLORS/master/LS_COLORS
-    dest: /home/ubuntu/.LS_COLORS
-    owner: ubuntu
-    group: ubuntu
+    dest: /home/{{ default_user }}/.LS_COLORS
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
     mode: '0644'
 
-- name: Enable LS_COLORS in ubuntu user's .bashrc
+- name: Enable LS_COLORS in default user's .bashrc
   ansible.builtin.lineinfile:
-    path: /home/ubuntu/.bashrc
+    path: /home/{{ default_user }}/.bashrc
     line: 'eval "$(dircolors -b ~/.LS_COLORS)"'
     create: true
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
     mode: '0644'

@@ -24,6 +24,7 @@
     # Repos to test explicitly
     cvmfs_verify_repos:
       - data.galaxyproject.org
+      - cloud.galaxyproject.org
 
   pre_tasks:
     - name: Display target host information

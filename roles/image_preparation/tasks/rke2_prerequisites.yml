@@ -27,6 +27,9 @@
     url: https://get.rke2.io
     dest: /tmp/install-rke2.sh
     mode: '0755'
+    timeout: 30
+  retries: 3
+  delay: 5
   become: true
 
 - name: Install RKE2 binaries

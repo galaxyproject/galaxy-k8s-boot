@@ -18,10 +18,10 @@
     content: |
       tail -n +1 -f /var/log/cloud-init-output.log
       kubectl config view --raw
-    dest: "/home/ubuntu/.bash_history"
+    dest: "/home/{{ default_user }}/.bash_history"
     mode: "0600"
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
   ignore_errors: true
 
 - name: Clear root bash history

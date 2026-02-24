@@ -4,7 +4,7 @@
 
 The playbook in this repo is used to build a VM image for deploying
 Galaxy. Having a custom image allows for faster deployments and a more
-consistent environment. The playbook is designed to work with Ubuntu. Once
+consistent environment. The playbook supports both Debian and Ubuntu. Once
 built, the image can be used to quickly deploy Galaxy instances on Kubernetes
 clusters using RKE2.
 
@@ -14,7 +14,7 @@ be adapted for other cloud providers like AWS or OpenStack (e.g., Jetstream2).
 ## Benefits of Having a Custom Image
 
 - **Faster deployments**: ~50% reduction in startup time
-- **Ubuntu focused**: Simplified maintenance and testing
+- **Debian and Ubuntu support**: Auto-detects OS and configures accordingly
 - **CVMFS ready**: Pre-configured Galaxy data access
 
 The process will set up the following components on the image:
@@ -33,6 +33,7 @@ The process will set up the following components on the image:
 ### CVMFS Client
 - Configured for the following Galaxy's CVMFS data repositories:
   - data.galaxyproject.org
+  - cloud.galaxyproject.org
 
 ## Repo Files Structure
 
@@ -41,7 +42,7 @@ roles/image_preparation/
 ├── defaults/main.yml        # Simplified variables
 ├── tasks/
 │   ├── main.yml             # Orchestrates all tasks
-│   ├── base_packages.yml    # Ubuntu package installation
+│   ├── base_packages.yml    # Package installation
 │   ├── system_config.yml    # Kernel and system settings
 │   ├── rke2_prerequisites.yml # RKE2 prerequisites installation
 │   ├── helm.yml             # Helm installation
@@ -58,10 +59,38 @@ bin/prepare_image.sh         # Helper script
 
 ## Usage
 
-### 1. Launch a Ubuntu Instance
+### 1. Launch a Base Instance
 
-Get the latest base Ubuntu image (pick the `amd64` variant). The code has been
-tested with the Ubuntu 24.04.
+#### Debian 12 (recommended)
+
+Get the latest Debian 12 image:
+
+```bash
+gcloud compute images list \
+  --project=debian-cloud \
+  --filter="family=debian-12 AND status=READY" \
+  --format="value(name)"
+```
+
+Launch a Debian 12 instance (note: default user is `debian`):
+
+```bash
+gcloud compute instances create ea-mi \
+  --project=anvil-and-terra-development \
+  --zone=us-east4-b \
+  --machine-type=n1-standard-2 \
+  --image-family=debian-12 \
+  --image-project=debian-cloud \
+  --boot-disk-size=100GB \
+  --tags=http-server,https-server \
+  --service-account=ea-dev@anvil-and-terra-development.iam.gserviceaccount.com \
+  --scopes=https://www.googleapis.com/auth/cloud-platform \
+  --metadata=ssh-keys="debian:ssh-rsa AAAAB3... your_key"
+```
+
+#### Ubuntu 24.04 (alternative)
+
+Get the latest Ubuntu 24.04 image:
 
 ```bash
 gcloud compute images list \
@@ -70,8 +99,7 @@ gcloud compute images list \
   --format="value(name)"
 ```
 
-Update the `--image` parameter in the instance creation command, as well as
-`--project`, `--zone`, `--service-account`, and `--metadata` as needed.
+Launch an Ubuntu instance (note: default user is `ubuntu`):
 
 ```bash
 gcloud compute instances create ea-mi \
@@ -84,7 +112,7 @@ gcloud compute instances create ea-mi \
   --tags=http-server,https-server \
   --service-account=ea-dev@anvil-and-terra-development.iam.gserviceaccount.com \
   --scopes=https://www.googleapis.com/auth/cloud-platform \
-  --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair"
+  --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3... your_key"
 ```
 
 ### 2. Prepare Image
@@ -97,6 +125,9 @@ file with the instance details:
 ```bash
 cp inventories/image_prep.ini.example inventories/image_prep.ini
 ```
+
+Set `ansible_user` in the inventory to match the OS (`debian` for Debian,
+`ubuntu` for Ubuntu).
 
 Then run the prep playbook to configure it:
 
@@ -115,7 +146,7 @@ gcloud compute instances stop ea-mi --zone=us-east4-b
 Create the image, updating the name and source disk as needed.
 
 ```bash
-gcloud compute images create galaxy-k8s-boot-v2026-01-20 \
+gcloud compute images create galaxy-k8s-boot-v2026-02-20 \
   --source-disk=ea-mi \
   --source-disk-zone=us-east4-b \
   --family=galaxy-k8s-boot \
@@ -133,3 +164,6 @@ gcloud compute instances delete ea-mi --zone=us-east4-b --quiet
 Once the image is created, you can deploy Galaxy using the prepared image. Use
 the `playbook.yml` to set up the cluster, which has its own documentation in the
 main README in this repo.
+
+When launching with `bin/launch_vm.sh`, use `--user debian` for Debian-based
+images or `--user ubuntu` for Ubuntu-based images.

@@ -14,14 +14,16 @@ GALAXY_CHART_VERSION="6.7.0"
 GALAXY_DEPS_VERSION="1.1.1"
 GIT_BRANCH="master"
 GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
-MACHINE_IMAGE="galaxy-k8s-boot-v2026-01-20"
-MACHINE_TYPE="e2-standard-8"
+MACHINE_IMAGE="galaxy-k8s-boot-debian12-v2026-02-24"
+MACHINE_TYPE="e2-standard-4"
 PROJECT="anvil-and-terra-development"
+VM_USER="debian"
 ZONE="us-east4-c"
 RESTORE_GALAXY=false
 
 # Parse command line arguments
 DISK_NAME=""
+DRY_RUN=""
 POSTGRES_DISK_NAME=""
 EPHEMERAL_ONLY=false
 GALAXY_VALUES_FILES=()  # Array to hold multiple values files
@@ -40,10 +42,12 @@ Required Arguments:
 Options:
   -b, --git-branch BRANCH           Git branch to deploy (default: $GIT_BRANCH)
   -d, --disk-name DISK_NAME         Name of NFS persistent disk (default: galaxy-data-INSTANCE_NAME)
+      --dry-run                     Saves the cloud-init user data and exits
   -e, --ephemeral-only              Create VM without persistent disk
   -f, --values FILE                 Helm values file (can be specified multiple times, default: values/values.yml)
   -i, --machine-image IMAGE         Machine image name (default: $MACHINE_IMAGE)
-  -k, --ssh-key SSH_KEY             SSH public key for ubuntu user (required)
+  -k, --ssh-key SSH_KEY             SSH public key for VM user (required)
+  -u, --user USER                   VM user account name (default: $VM_USER)
   -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
   -p, --project PROJECT             GCP project ID (default: $PROJECT)
   -r, --git-repo REPO               Git repository URL (default: $GIT_REPO)
@@ -95,6 +99,10 @@ while [[ $# -gt 0 ]]; do
             DISK_NAME="$2"
             shift 2
             ;;
+        --dry-run)
+        	DRY_RUN="yes"   
+        	shift     	
+        	;;
         -e|--ephemeral-only)
             EPHEMERAL_ONLY=true
             shift
@@ -133,6 +141,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -s|--disk-size)
             DISK_SIZE="$2"
+            shift 2
+            ;;
+        -u|--user)
+            VM_USER="$2"
             shift 2
             ;;
         -z|--zone)
@@ -174,6 +186,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required arguments
+echo "Validatin required arguments"
 if [ -z "$INSTANCE_NAME" ]; then
     echo "Error: Instance name is required"
     usage
@@ -276,8 +289,12 @@ else
 fi
 
 # Generate custom user_data.sh with values baked in
-TEMP_USER_DATA=$(mktemp /tmp/user_data.XXXXXX.sh)
-trap "rm -f $TEMP_USER_DATA" EXIT
+if [[ $DRY_RUN = "yes" ]] ; then
+	TEMP_USER_DATA="./cloud-config.txt"
+else
+	TEMP_USER_DATA=$(mktemp /tmp/user_data.XXXXXX)
+	trap "rm -f $TEMP_USER_DATA" EXIT
+fi
 
 # Add the configuration values directly into the script
 if [ "$EPHEMERAL_ONLY" = false ]; then
@@ -316,8 +333,7 @@ runcmd:
         echo "UUID=$DISK_UUID /mnt/block_storage ext4 defaults 0 2" >> /etc/fstab
       fi
 
-      # Set proper ownership
-      chown ubuntu:ubuntu /mnt/block_storage
+      # Set proper ownership (VM_USER injected below)
       echo "[`date`] - Persistent disk mounted at /mnt/block_storage"
     else
       echo "[`date`] - No persistent disk found. Galaxy will use ephemeral storage."
@@ -346,16 +362,24 @@ runcmd:
         echo "UUID=$POSTGRES_DISK_UUID /mnt/postgres_storage ext4 defaults 0 2" >> /etc/fstab
       fi
 
-      # Set proper ownership
-      chown ubuntu:ubuntu /mnt/postgres_storage
+      # Set proper ownership (VM_USER injected below)
       echo "[`date`] - PostgreSQL disk mounted at /mnt/postgres_storage"
     else
       echo "[`date`] - No PostgreSQL disk found. PostgreSQL will use ephemeral storage."
     fi
   - |
-    # Run ansible-pull as ubuntu user
-    sudo -u ubuntu bash -c '
-    export HOME=/home/ubuntu
+    # Set disk ownership
+    VM_USER="PLACEHOLDER_VM_USER"
+    if [ -d /mnt/block_storage ]; then
+      chown $VM_USER:$VM_USER /mnt/block_storage
+    fi
+    if [ -d /mnt/postgres_storage ]; then
+      chown $VM_USER:$VM_USER /mnt/postgres_storage
+    fi
+
+    # Run ansible-pull as VM_USER
+    sudo -u $VM_USER bash -c '
+    export HOME=/home/PLACEHOLDER_VM_USER
     HOST_IP=$(curl -s ifconfig.me)
 
 EOF
@@ -379,7 +403,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     127.0.0.1 ansible_connection=local ansible_python_interpreter="/usr/bin/python3"
 
     [all:vars]
-    ansible_user="ubuntu"
+    ansible_user="PLACEHOLDER_VM_USER"
     rke2_token="defaultSecret12345"
     rke2_additional_sans=["${HOST_IP}"]
     rke2_debug=true
@@ -399,14 +423,26 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_JSON}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/ubuntu/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"enable_gcp_batch\": true, \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}}" playbook.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/PLACEHOLDER_VM_USER/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"enable_gcp_batch\": true, \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}}" playbook.yml
 
     echo "[`date`] - User data script completed."
     '
 
 EOF
 
+# Replace VM_USER placeholder in the generated user-data
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "s/PLACEHOLDER_VM_USER/${VM_USER}/g" "$TEMP_USER_DATA"
+else
+    sed -i "s/PLACEHOLDER_VM_USER/${VM_USER}/g" "$TEMP_USER_DATA"
+fi
+
 echo "ℹ Generated custom user_data.sh at $TEMP_USER_DATA"
+
+if [[ $DRY_RUN = "yes" ]] ; then
+	echo "Dry run complete."
+	exit
+fi
 
 # Launch the VM
 echo "Launching VM '$INSTANCE_NAME'..."
@@ -424,7 +460,7 @@ GCLOUD_CMD=(
     --tags=k8s,http-server,https-server
     --scopes=cloud-platform
     --metadata-from-file=user-data="$TEMP_USER_DATA"
-    --metadata=ssh-keys="ubuntu:$SSH_KEY"
+    --metadata=ssh-keys="$VM_USER:$SSH_KEY"
 )
 
 # Add disk flags if not ephemeral only
