@@ -1,4 +1,4 @@
-# Galaxy 26.0 RC
+# Galaxy 26.1 dev
 image:
   repository: ksuderman/galaxy-min
   tag: "26.1.dev0"
