@@ -82,4 +82,4 @@ bin/launch_vm.sh $SERVER $DRY_RUN\
   --disk-size 256 \
   -f values/values.yml \
   -f values/batch.yml \
-  -f values/v26.1.yml
+  -f values/v26.0.yml
