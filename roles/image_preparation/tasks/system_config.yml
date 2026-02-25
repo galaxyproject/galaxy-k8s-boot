@@ -105,3 +105,11 @@
     owner: "{{ default_user }}"
     group: "{{ default_user }}"
     mode: '0644'
+
+- name: Add ll alias for all users
+  ansible.builtin.lineinfile:
+    path: /etc/profile.d/aliases.sh
+    line: "alias ll='ls -l'"
+    create: true
+    mode: '0644'
+  become: true

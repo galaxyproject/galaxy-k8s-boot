@@ -381,9 +381,7 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   loop:
-    - galaxy-web
     - galaxy-workflow
-    - galaxy-job-0
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
