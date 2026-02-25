@@ -11,12 +11,6 @@ clusters using RKE2.
 Many sample commands are provided that are specific to GCP, but the playbook can
 be adapted for other cloud providers like AWS or OpenStack (e.g., Jetstream2).
 
-## Benefits of Having a Custom Image
-
-- **Faster deployments**: ~50% reduction in startup time
-- **Debian and Ubuntu support**: Auto-detects OS and configures accordingly
-- **CVMFS ready**: Pre-configured Galaxy data access
-
 The process will set up the following components on the image:
 
 ## Components Installed
@@ -39,14 +33,23 @@ The process will set up the following components on the image:
 
 ```
 roles/image_preparation/
-├── defaults/main.yml        # Simplified variables
-├── tasks/
-│   ├── main.yml             # Orchestrates all tasks
-│   ├── base_packages.yml    # Package installation
-│   ├── system_config.yml    # Kernel and system settings
-│   ├── rke2_prerequisites.yml # RKE2 prerequisites installation
-│   ├── helm.yml             # Helm installation
-│   └── cleanup.yml          # Image cleanup
+├── README.md
+├── requirements.yml              # Role dependencies
+├── defaults/
+│   └── main.yml                  # Role variables with defaults
+├── files/
+│   └── container_images.yml      # List of container images to prefetch
+├── meta/
+│   └── main.yml                  # Role metadata
+└── tasks/
+    ├── main.yml                  # Orchestrates all tasks
+    ├── base_packages.yml         # Package installation
+    ├── cleanup.yml               # Image cleanup
+    ├── container_prefetch.yml    # Container image prefetching
+    ├── helm.yml                  # Helm installation
+    ├── k3s_binary.yml            # k3s binary download
+    ├── rke2_prerequisites.yml    # RKE2 prerequisites installation
+    └── system_config.yml         # Kernel and system settings
 
 image_prep.yml               # Main playbook for building the image
 playbook.yml                 # Deployment playbook using the prepared image
@@ -59,111 +62,43 @@ bin/prepare_image.sh         # Helper script
 
 ## Usage
 
-### 1. Launch a Base Instance
-
-#### Debian 12 (recommended)
-
-Get the latest Debian 12 image:
+The `bin/prepare_image.sh` script handles the entire image build process end
+to end: it creates a temporary GCE VM, runs the Ansible preparation playbook,
+snapshots it as a GCE image, and deletes the VM.
 
 ```bash
-gcloud compute images list \
-  --project=debian-cloud \
-  --filter="family=debian-12 AND status=READY" \
-  --format="value(name)"
+./bin/prepare_image.sh
 ```
 
-Launch a Debian 12 instance (note: default user is `debian`):
+### Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--os` | Base OS preset: `debian12` or `ubuntu2404` | `debian12` |
+| `--name` | Override output image name | `galaxy-k8s-boot-v{YYYY-MM-DD}` |
+| `--zone` | GCP zone | `us-east4-c` |
+| `--project` | GCP project | `anvil-and-terra-development` |
+| `--machine-type` | VM machine type | `n1-standard-2` |
+| `--vm-name` | Override temporary VM name | `galaxy-image-prep` |
+| `--keep-vm` | Don't delete the VM after image creation | |
+| `-v`, `--verbose` | Verbose Ansible output | |
+| `-n`, `--dry-run` | Print the exact commands that would run, then exit | |
+
+### Running Steps Individually
+
+To get the exact commands for each step without executing them, use
+`--dry-run`. This prints the full `gcloud` and `ansible-playbook` commands
+with all resolved values, which you can copy and run manually.
 
 ```bash
-gcloud compute instances create ea-mi \
-  --project=anvil-and-terra-development \
-  --zone=us-east4-b \
-  --machine-type=n1-standard-2 \
-  --image-family=debian-12 \
-  --image-project=debian-cloud \
-  --boot-disk-size=100GB \
-  --tags=http-server,https-server \
-  --service-account=ea-dev@anvil-and-terra-development.iam.gserviceaccount.com \
-  --scopes=https://www.googleapis.com/auth/cloud-platform \
-  --metadata=ssh-keys="debian:ssh-rsa AAAAB3... your_key"
+./bin/prepare_image.sh --dry-run
+./bin/prepare_image.sh --dry-run --os ubuntu2404 --zone us-central1-a
 ```
 
-#### Ubuntu 24.04 (alternative)
+### Deploy Galaxy
 
-Get the latest Ubuntu 24.04 image:
-
-```bash
-gcloud compute images list \
-  --project=ubuntu-os-cloud \
-  --filter="family=ubuntu-minimal-2404-lts AND status=READY" \
-  --format="value(name)"
-```
-
-Launch an Ubuntu instance (note: default user is `ubuntu`):
-
-```bash
-gcloud compute instances create ea-mi \
-  --project=anvil-and-terra-development \
-  --zone=us-east4-b \
-  --machine-type=n1-standard-2 \
-  --image=ubuntu-minimal-2404-noble-amd64-v20260114 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=100GB \
-  --tags=http-server,https-server \
-  --service-account=ea-dev@anvil-and-terra-development.iam.gserviceaccount.com \
-  --scopes=https://www.googleapis.com/auth/cloud-platform \
-  --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3... your_key"
-```
-
-### 2. Prepare Image
-
-#### Customization
-
-Set any variables in `defaults/main.yml` and create or update your inventory
-file with the instance details:
-
-```bash
-cp inventories/image_prep.ini.example inventories/image_prep.ini
-```
-
-Set `ansible_user` in the inventory to match the OS (`debian` for Debian,
-`ubuntu` for Ubuntu).
-
-Then run the prep playbook to configure it:
-
-```bash
-./bin/prepare_image.sh -i inventories/image_prep.ini
-```
-
-### 3. Create a Custom Image
-
-Stop the instance and then create the image.
-
-```bash
-gcloud compute instances stop ea-mi --zone=us-east4-b
-```
-
-Create the image, updating the name and source disk as needed.
-
-```bash
-gcloud compute images create galaxy-k8s-boot-v2026-02-20 \
-  --source-disk=ea-mi \
-  --source-disk-zone=us-east4-b \
-  --family=galaxy-k8s-boot \
-  --storage-location=us
-```
-
-Then delete the instance.
-
-```bash
-gcloud compute instances delete ea-mi --zone=us-east4-b --quiet
-```
-
-### 4. Deploy Galaxy
-
-Once the image is created, you can deploy Galaxy using the prepared image. Use
-the `playbook.yml` to set up the cluster, which has its own documentation in the
-main README in this repo.
+Once the image is created, deploy Galaxy using the prepared image with
+`playbook.yml`. See the main README for details.
 
 When launching with `bin/launch_vm.sh`, use `--user debian` for Debian-based
 images or `--user ubuntu` for Ubuntu-based images.

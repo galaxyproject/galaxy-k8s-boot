@@ -33,13 +33,18 @@ cleanup() {
 trap cleanup EXIT
 
 # OS presets: image-family, image-project, ssh-user
-declare -A OS_FAMILY OS_PROJECT OS_USER
-OS_FAMILY[debian12]="debian-12"
-OS_PROJECT[debian12]="debian-cloud"
-OS_USER[debian12]="debian"
-OS_FAMILY[ubuntu2404]="ubuntu-2404-lts-amd64"
-OS_PROJECT[ubuntu2404]="ubuntu-os-cloud"
-OS_USER[ubuntu2404]="ubuntu"
+resolve_os_preset() {
+    local os="$1" field="$2"
+    case "$os:$field" in
+        debian12:family)  echo "debian-12" ;;
+        debian12:project) echo "debian-cloud" ;;
+        debian12:user)    echo "debian" ;;
+        ubuntu2404:family)  echo "ubuntu-2404-lts-amd64" ;;
+        ubuntu2404:project) echo "ubuntu-os-cloud" ;;
+        ubuntu2404:user)    echo "ubuntu" ;;
+        *) return 1 ;;
+    esac
+}
 
 # ANSI formatting
 reset="\033[0m"
@@ -81,8 +86,8 @@ $(hi OS PRESETS)
 
 $(hi IMAGE NAMING)
     By default the image is named:
-        galaxy-k8s-boot-{os}-v{YYYY-MM-DD}
-    For example: $(hi galaxy-k8s-boot-debian12-v2026-02-24)
+        galaxy-k8s-boot-v{YYYY-MM-DD}
+    For example: $(hi galaxy-k8s-boot-v2026-02-24)
     Override with $(hi --name).
 
 $(hi EXAMPLES)
@@ -117,18 +122,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate OS preset
-if [[ -z "${OS_FAMILY[$OS]+x}" ]]; then
+if ! resolve_os_preset "$OS" family > /dev/null 2>&1; then
     echo "Error: Unknown OS preset '$OS'. Choose debian12 or ubuntu2404."
     exit 1
 fi
 
-BASE_FAMILY="${OS_FAMILY[$OS]}"
-BASE_PROJECT="${OS_PROJECT[$OS]}"
-SSH_USER="${OS_USER[$OS]}"
+BASE_FAMILY=$(resolve_os_preset "$OS" family)
+BASE_PROJECT=$(resolve_os_preset "$OS" project)
+SSH_USER=$(resolve_os_preset "$OS" user)
 
 # Generate image name if not overridden
 if [[ -z "$IMAGE_NAME" ]]; then
-    IMAGE_NAME="galaxy-k8s-boot-${OS}-v$(date +%Y-%m-%d)"
+    IMAGE_NAME="galaxy-k8s-boot-v$(date +%Y-%m-%d)"
 fi
 
 # Resolve the latest base image from the family
@@ -145,29 +150,45 @@ if [[ "$DRY_RUN" == "true" ]]; then
     echo ""
     echo "==> Dry run — the following steps would be performed:"
     echo ""
-    echo "  1. Create VM '$VM_NAME' in $ZONE ($MACHINE_TYPE)"
-    echo "     Base image: $BASE_IMAGE (family: $BASE_FAMILY)"
-    echo "     Boot disk:  $BOOT_DISK_SIZE"
-    echo "     SSH user:   $SSH_USER"
+    echo "  1. Create VM:"
+    echo "     gcloud compute instances create $VM_NAME \\"
+    echo "         --project=$PROJECT \\"
+    echo "         --zone=$ZONE \\"
+    echo "         --machine-type=$MACHINE_TYPE \\"
+    echo "         --image=$BASE_IMAGE \\"
+    echo "         --image-project=$BASE_PROJECT \\"
+    echo "         --boot-disk-size=$BOOT_DISK_SIZE \\"
+    echo "         --boot-disk-type=pd-balanced \\"
+    echo "         --scopes=cloud-platform \\"
+    echo "         --metadata=enable-oslogin=FALSE,ssh-keys=\"$SSH_USER:<gcloud-public-key>\""
     echo ""
     echo "  2. Wait for SSH readiness"
     echo ""
-    echo "  3. Run Ansible playbook: $PLAYBOOK"
-    echo "     Inventory: <temp file with $SSH_USER@<external-ip>>"
+    echo "  3. Run Ansible playbook:"
+    echo "     ansible-playbook -i <inventory> $PROJECT_ROOT/$PLAYBOOK${VERBOSE:+ $VERBOSE}"
+    echo "     (inventory: $SSH_USER@<external-ip>, key: ~/.ssh/google_compute_engine)"
     echo ""
-    echo "  4. Stop VM '$VM_NAME'"
+    echo "  4. Stop VM:"
+    echo "     gcloud compute instances stop $VM_NAME \\"
+    echo "         --project=$PROJECT \\"
+    echo "         --zone=$ZONE"
     echo ""
-    echo "  5. Create GCE image: $IMAGE_NAME"
-    echo "     Image family: $IMAGE_FAMILY"
-    echo "     Source disk:   $VM_NAME"
+    echo "  5. Create GCE image:"
+    echo "     gcloud compute images create $IMAGE_NAME \\"
+    echo "         --project=$PROJECT \\"
+    echo "         --source-disk=$VM_NAME \\"
+    echo "         --source-disk-zone=$ZONE \\"
+    echo "         --family=$IMAGE_FAMILY \\"
+    echo "         --storage-location=us"
     echo ""
     if [[ "$KEEP_VM" == "true" ]]; then
         echo "  6. Keep VM (--keep-vm set)"
     else
-        echo "  6. Delete VM '$VM_NAME'"
+        echo "  6. Delete VM:"
+        echo "     gcloud compute instances delete $VM_NAME \\"
+        echo "         --project=$PROJECT \\"
+        echo "         --zone=$ZONE"
     fi
-    echo ""
-    echo "  Project: $PROJECT"
     echo ""
     exit 0
 fi
@@ -249,17 +270,10 @@ ansible_python_interpreter=/usr/bin/python3
 EOF
 
 echo "==> Running image preparation playbook..."
-ANSIBLE_CMD=(
-    ansible-playbook
-    -i "$INVENTORY_FILE"
-    "$PROJECT_ROOT/$PLAYBOOK"
-)
-
-if [[ -n "$VERBOSE" ]]; then
-    ANSIBLE_CMD+=("$VERBOSE")
-fi
-
-"${ANSIBLE_CMD[@]}"
+ansible-playbook \
+    -i "$INVENTORY_FILE" \
+    "$PROJECT_ROOT/$PLAYBOOK" \
+    $VERBOSE
 
 # --- Step 4: Stop VM ---
 echo "==> Stopping VM..."
