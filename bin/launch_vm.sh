@@ -65,7 +65,7 @@ Examples:
   $0 -k "ssh-rsa AAAAB3..." my-galaxy-vm
 
   # Launch VM with specific machine image
-  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2026-01-20 my-galaxy-vm
+  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2026-02-25 my-galaxy-vm
 
   # Launch VM with specific disk names
   $0 -k "ssh-rsa AAAAB3..." -d galaxy-shared-disk --postgres-disk galaxy-postgres-disk my-galaxy-vm
@@ -100,8 +100,8 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --dry-run)
-        	DRY_RUN="yes"   
-        	shift     	
+        	DRY_RUN="yes"
+        	shift
         	;;
         -e|--ephemeral-only)
             EPHEMERAL_ONLY=true

@@ -53,7 +53,7 @@ gcloud compute instances create ea-fresh \
   --project=anvil-and-terra-development \
   --zone=us-east4-c \
   --machine-type=e2-standard-8 \
-  --image=galaxy-k8s-boot-v2026-01-20 \
+  --image=galaxy-k8s-boot-v2026-02-25 \
   --image-project=anvil-and-terra-development \
   --boot-disk-size=100GB \
   --boot-disk-type=pd-balanced \
@@ -200,9 +200,9 @@ Deploy Galaxy with GCP Batch enabled:
 ```bash
 ansible-playbook -i inventories/vm.ini playbook.yml \
   --extra-vars "enable_gcp_batch=true" \
-  --extra-vars "gcp_batch_service_account_email=galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --extra-vars "gcp_batch_service_account_email=galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com" \
   --extra-vars "gcp_batch_region=us-east4" \
-  --extra-vars "galaxy_values_files=['values/values.yml','values/gcp-batch.yml']"
+  --extra-vars "galaxy_values_files=['values/values.yml','values/batch.yml','values/v26.0.yml','values/rules.yml']"
 ```
 
 #### What Gets Configured Automatically

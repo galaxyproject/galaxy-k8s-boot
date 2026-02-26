@@ -45,11 +45,13 @@
     mode: "0644"
   become: true
 
-- name: Remove SSH host keys (will be regenerated on first boot)
-  ansible.builtin.shell: rm -f /etc/ssh/ssh_host_*
-  become: true
-
 - name: Clear cloud-init cache
   ansible.builtin.shell: rm -rf /var/lib/cloud
   become: true
   ignore_errors: true
+
+- name: Remove SSH keys (will be regenerated on first boot)
+  ansible.builtin.shell: |
+    rm -f /etc/ssh/ssh_host_*
+    rm -f /home/{{ default_user }}/.ssh/authorized_keys
+  become: true

@@ -68,6 +68,8 @@ configs:
         id: __SET_METADATA__
       - environment: local
         id: __EXTRACT_DATASET__
+      - environment: local
+        id: random_lines1
       # Route interactive tools to Kubernetes
       - environment: local
         id: interactive_tool.*
