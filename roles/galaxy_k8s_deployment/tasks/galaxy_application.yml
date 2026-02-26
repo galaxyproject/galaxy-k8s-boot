@@ -279,8 +279,6 @@
       configs:
         galaxy.yml:
           galaxy:
-            single_user: "{{ galaxy_user }}"
-            admin_users: "{{ galaxy_user }}"
             master_api_key: "{{ galaxy_api_key | default(omit) }}"
       jobs:
         rules:
