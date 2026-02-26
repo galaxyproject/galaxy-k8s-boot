@@ -1,0 +1,9 @@
+configs:
+  galaxy.yml:
+    galaxy:
+      require_login: false
+      show_welcome_with_login: true
+      allow_user_creation: true
+      allow_local_account_creation: true
+      single_user: null
+      admin_users: admin@galaxyproject.org

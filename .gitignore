@@ -4,6 +4,8 @@
 .vscode/
 .prettierignore
 .gemini/
+.claude/
+.ignored
 k3s/outputs/
 ansible.cfg
 sa-key.json

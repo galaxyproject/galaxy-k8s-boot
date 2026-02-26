@@ -38,8 +38,9 @@ configs:
         custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-debian12-v2026-02-24
         # Job execution settings
         max_retry_count: 3
-        max_run_duration: 3600s
+        max_run_duration: 8h
         polling_interval: 30
+        delete_completed_jobs: false
     execution:
       default: tpv_dispatcher
       environments:
