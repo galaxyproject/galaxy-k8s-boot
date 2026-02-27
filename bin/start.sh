@@ -79,8 +79,8 @@ echo "Launching ${SERVER}"
 bin/launch_vm.sh $SERVER $DRY_RUN\
   --git-repo $REPO \
   --git-branch $BRANCH \
-  --disk-size 256 \
+  --disk-size 256 
   -f values/values.yml \
-  -f mixins/multiuser.yml \
-  -f mixins/admins.yml \
   -f mixins/v26.1.yml
+#   -f mixins/multiuser.yml \
+#   -f mixins/admins.yml \
