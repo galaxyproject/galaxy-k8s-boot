@@ -56,6 +56,8 @@ configs:
       # The custom brand image source
       logo_src_secondary: /static/images/anvil-project-logo-white.png
       enable_quotas: true
+      single_user: default-user@galaxyproject.org
+      admin_users: default-user@galaxyproject.org
   job_conf.yml:
     runners:
       gcp_batch:
