@@ -77,8 +77,8 @@ Examples:
   $0 -k "ssh-rsa AAAAB3..." --galaxy-chart-version "6.0.0" --galaxy-deps-version "1.1.0" my-galaxy-vm
 
   # Launch VM with multiple Helm values files (order matters - later files override earlier ones)
-  $0 -k "ssh-rsa AAAAB3..." -f values/values.yml -f values/gcp-batch.yml my-galaxy-vm
-  $0 -k "ssh-rsa AAAAB3..." --values values/values.yml --values values/dev.yml --values values/v25.0.2.yml my-galaxy-vm
+  $0 -k "ssh-rsa AAAAB3..." -f values/values.yml -f mixins/v26.1.yml my-galaxy-vm
+  $0 -k "ssh-rsa AAAAB3..." --values values/values.yml --values mixins/multiuser.yml --values mixins/admins.yml my-galaxy-vm
   # Launch VM with custom git repository and branch
   $0 -k "ssh-rsa AAAAB3..." -g "https://github.com/username/galaxy-k8s-boot.git" -b "feature-branch" my-galaxy-vm
 

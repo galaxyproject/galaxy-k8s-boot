@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 #BRANCH=41-fix-nfs
-BRANCH=${BRANCH:-test-debian-image-prep}
-SERVER=${SERVER:-ks-debian-test}
+BRANCH=${BRANCH:-refactor-files}
+SERVER=${SERVER:-ks-test}
 REPO=${REPO:-https://github.com/ksuderman/galaxy-k8s-boot}
 DRY_RUN=""
 
@@ -79,7 +79,8 @@ echo "Launching ${SERVER}"
 bin/launch_vm.sh $SERVER $DRY_RUN\
   --git-repo $REPO \
   --git-branch $BRANCH \
-  --disk-size 256 \
+  --disk-size 256 
   -f values/values.yml \
-  -f values/batch.yml \
-  -f values/v26.0.yml
+  -f mixins/v26.1.yml
+#   -f mixins/multiuser.yml \
+#   -f mixins/admins.yml \
