@@ -43,7 +43,11 @@ helm_repositories:
 
 # NFS Storage Configuration
 nfs_version: "1.8.0"
-nfs_size: "25Gi"
+# Size of the NFS PVC. On GCP, disk sizes are specified in GB while Kubernetes
+# PVCs use Gi, so a `150GB` disk is only about `139Gi` usable capacity. If you
+# change this, also review `galaxy_persistence_size` below and keep it at or
+# below the usable capacity of the underlying disk.
+nfs_size: "139Gi"
 nfs_default: false
 nfs_allow_expansion: true
 nfs_reclaim: Retain
@@ -73,7 +77,7 @@ cert_manager_version: "v1.14.0"
 # Requires: cert-manager installed in the cluster
 cnpg_skip_initdb_enabled: true
 cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
-# IMPORTANT: Plugin must be deployed in same namespace as CNPG operator (galaxy-deps)
+# IMPORTANT: Plugin must be deployed in same namespace as CNPG operator (i.e., galaxy-deps)
 cnpg_skip_initdb_namespace: "galaxy-deps"
 cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
 
@@ -96,7 +100,10 @@ galaxy_deps_version: "1.1.1"
 galaxy_values_files:
   - "values/values.yml"
 
-galaxy_persistence_size: "20Gi"
+# Size requested by Galaxy's `galaxy-pvc` claim.
+# Keep it less than or equal to the usable space behind `nfs_size`, and
+# leave headroom if other PVCs also use the `nfs` storage class.
+galaxy_persistence_size: "128Gi"
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
 galaxy_api_key: ""
