@@ -89,7 +89,8 @@ configs:
         custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-debian12-v2026-02-24
         # Job execution settings
         max_retry_count: 3
-        max_run_duration: 8h
+        # Max time a job will run before being deleted. Must be in seconds (end with 's'). Default 24hrs.
+        max_run_duration: 86400s
         polling_interval: 30
       local:
         load: galaxy.jobs.runners.local:LocalJobRunner
