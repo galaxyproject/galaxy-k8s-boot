@@ -32,7 +32,7 @@ write_files:
         fi
 
         # Set proper ownership
-        chown ubuntu:ubuntu /mnt/block_storage
+        chown debian:debian /mnt/block_storage
         echo "[$(date)] - Persistent disk mounted at /mnt/block_storage"
       else
         echo "[$(date)] - No persistent disk found at $DISK_DEVICE. Galaxy will use ephemeral storage."
@@ -62,27 +62,29 @@ write_files:
         fi
 
         # Set proper ownership
-        chown ubuntu:ubuntu /mnt/postgres_storage
+        chown debian:debian /mnt/postgres_storage
         echo "[$(date)] - PostgreSQL disk mounted at /mnt/postgres_storage"
       else
         echo "[$(date)] - No PostgreSQL disk found at $POSTGRES_DISK_DEVICE. PostgreSQL will use ephemeral storage."
       fi
 
-      # 3. Run ansible-pull as ubuntu user
-      sudo -u ubuntu bash -c '
-      export HOME=/home/ubuntu
+      # 3. Run ansible-pull
+      sudo -u debian bash -c '
+      export HOME=/home/debian
       HOST_IP=$(curl -s ifconfig.me)
 
-      # Get persistent data size from metadata
       PV_SIZE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/persistent-volume-size" -H "Metadata-Flavor: Google" 2>/dev/null)
       if [ -z "$PV_SIZE" ]; then
           echo "[$(date)] - persistent-volume-size metadata not found or empty, using default."
-          PV_SIZE="120Gi"
+          PV_SIZE="139Gi"
       fi
       echo "[$(date)] - NFS storage size for Galaxy: ${PV_SIZE}"
 
       # Add restore_galaxy if enabled
       RESTORE_GALAXY=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/restore_galaxy" -H "Metadata-Flavor: Google" 2>/dev/null || echo "false")
+
+      GCP_BATCH_SERVICE_ACCOUNT_EMAIL=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp_batch_service_account_email" -H "Metadata-Flavor: Google" 2>/dev/null || echo "galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com")
+      echo "[$(date)] - GCP Batch service account email: ${GCP_BATCH_SERVICE_ACCOUNT_EMAIL}"
 
       GIT_REPO=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-repo" -H "Metadata-Flavor: Google" 2>/dev/null || echo "https://github.com/galaxyproject/galaxy-k8s-boot.git")
       GIT_BRANCH=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-branch" -H "Metadata-Flavor: Google" 2>/dev/null || echo "master")
@@ -90,10 +92,11 @@ write_files:
       PULL_ARGS=(
         -U "${GIT_REPO}"
         -C "${GIT_BRANCH}"
-        -d /home/ubuntu/ansible
+        -d /home/debian/ansible
         -i /tmp/ansible-inventory/localhost
         --accept-host-key
         --limit 127.0.0.1
+        --extra-vars "gcp_batch_service_account_email=${GCP_BATCH_SERVICE_ACCOUNT_EMAIL}"
       )
 
       if [ "$RESTORE_GALAXY" = "true" ]; then
@@ -111,7 +114,7 @@ write_files:
       127.0.0.1 ansible_connection=local ansible_python_interpreter="/usr/bin/python3"
 
       [all:vars]
-      ansible_user="ubuntu"
+      ansible_user="debian"
       rke2_token="defaultSecret12345"
       rke2_additional_sans=["${HOST_IP}"]
       rke2_debug=true
