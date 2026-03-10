@@ -38,7 +38,6 @@ galaxy_k8s_deployment/
 ## Requirements
 
 - Ansible >= 2.10
-- Ubuntu 24.04
 - Python 3
 - Kubernetes collection: `kubernetes.core`
 - Community collections: `community.general`, `ansible.posix`
@@ -92,10 +91,32 @@ rke2_debug: false                          # Enable debug mode
 
 ```yaml
 nfs_version: "1.8.0"                       # Ganesha NFS chart version
-nfs_size: "25Gi"                           # NFS backing storage size
+nfs_size: "139Gi"                          # NFS backing storage size
 nfs_default: false                         # Set as default storage class
 nfs_allow_expansion: true
 nfs_reclaim: Retain
+```
+
+### Kubernetes Storage Configuration
+
+```yaml
+cluster_hostname: galaxy                   # Cluster hostname
+cinder_csi_version: "2.31.2"               # Cinder CSI version (if used)
+block_storage_disk_path: /mnt/block_storage # Local path to NFS backing disk
+postgres_storage_disk_path: /mnt/postgres_storage # Local path to PSQL backing disk
+setup_postgres_storage: true               # Setup local-path storage for PostgreSQL
+```
+
+### CNPG and Restoration Configuration
+
+```yaml
+setup_cert_manager: false                  # Required for CNPG skip-initdb plugin
+cert_manager_version: "v1.14.0"            # cert-manager chart version
+cnpg_skip_initdb_enabled: true             # Enable PostgreSQL existing data reuse
+cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
+cnpg_skip_initdb_namespace: "galaxy-deps"  # Must match CNPG operator namespace
+cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
+restore_galaxy: false                      # Detect and restore existing Galaxy data
 ```
 
 ### Ingress Configuration
@@ -108,12 +129,12 @@ ingress_version: "4.13.2"                  # NGINX ingress chart version
 
 ```yaml
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.7.0"              # Galaxy chart version
+galaxy_chart_version: "6.7.2"              # Galaxy chart version
 galaxy_deps_version: "1.1.1"               # Galaxy dependencies version
 galaxy_values_files: ["values/values.yml"] # Path to Galaxy values files
-galaxy_persistence_size: "20Gi"            # Galaxy data volume size
+galaxy_persistence_size: "128Gi"           # Galaxy data volume size
 galaxy_db_password: "galaxydbpassword"     # PostgreSQL password
-galaxy_user: "admin@galaxy.org"            # Galaxy admin user
+galaxy_user: "default-user@galaxyproject.org" # Galaxy admin user
 galaxy_api_key: ""                         # Galaxy API key
 galaxy_job_max_cores: 1                    # Max CPU cores per job
 galaxy_job_max_mem: 4                      # Max memory per job (GB)
@@ -126,6 +147,14 @@ pulsar_chart: cloudve/pulsar
 pulsar_chart_version: "0.2.0"              # Pulsar chart version
 pulsar_deps_version: "1.1.1"               # Pulsar dependencies version
 pulsar_api_key: ""                         # Pulsar API key
+```
+
+### GCP Batch Configuration
+
+```yaml
+enable_gcp_batch: true                     # Auto-configure Galaxy for GCP Batch runner
+gcp_batch_service_account_email: ""        # Service account email for Batch
+gcp_batch_region: "us-east4"               # Region for GCP Batch
 ```
 
 ## Dependencies
