@@ -22,9 +22,9 @@ This repo is divided into two main playbooks:
 
 ## Deployment
 
-The preferred way to deploy Galaxy is with a pre-built Ubuntu 24.04 image
-following the documentation below. The playbook can also run on a fresh Ubuntu
-24.04 VM, but it will take longer to complete as it needs to install all
+The preferred way to deploy Galaxy is using a pre-built Debian 12 image
+following the documentation below. The playbook can also run on a fresh Debian
+12 VM, but it will take longer to complete as it needs to install all
 dependencies. The playbook will install all necessary software by running an
 Ansible playbook to deploy Galaxy. Galaxy should be available at
 `http://INSTANCE_IP/` in about 6 minutes. The documentation below covers the
@@ -43,16 +43,52 @@ When deploying Galaxy, you can deploy a fresh instance or restore one from
 existing persistent disks. By default, the playbook will create a fresh
 installation. See documentation below for how to restore from existing data.
 
+### Prerequisites
+
+The default configuration will launch Galaxy configured to use GCP Batch for
+running the workload. With that, you need to do the following initial set up to
+configure use of Batch on the GCP side. Replace `anvil-and-terra-development` in
+these commands with your project id. Note that this needs to set up only once
+for a given account.
+
+1. **GCP Service Account**: Create a service account with appropriate permissions:
+   ```bash
+   gcloud iam service-accounts create galaxy-batch-runner \
+     --project=anvil-and-terra-development
+
+   # Grant required permissions
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com" \
+     --role="roles/batch.jobsEditor"
+
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com" \
+     --role="roles/iam.serviceAccountUser"
+   ```
+
+2. **Firewall Rules**: Ensure GCP Batch VMs can access the NFS server:
+   ```bash
+   gcloud compute firewall-rules create allow-nfs-for-batch \
+     --project=anvil-and-terra-development \
+     --direction=INGRESS \
+     --priority=1000 \
+     --network=default \
+     --action=ALLOW \
+     --rules=tcp:2049,udp:2049,tcp:111,udp:111 \
+     --source-ranges=10.0.0.0/8 \
+     --target-tags=k8s
+   ```
+
 ### Creating a Fresh VM
 
 To create a VM instance but not run the playbook automatically, use the
-following command:
+following command. Update the metadata values as needed.
 
 ```bash
 gcloud compute instances create ea-fresh \
   --project=anvil-and-terra-development \
   --zone=us-east4-c \
-  --machine-type=e2-standard-8 \
+  --machine-type=e2-standard-4 \
   --image=galaxy-k8s-boot-v2026-02-25 \
   --image-project=anvil-and-terra-development \
   --boot-disk-size=100GB \
@@ -61,7 +97,7 @@ gcloud compute instances create ea-fresh \
   --create-disk=name=galaxy-postgres-disk-1,size=10GB,type=pd-balanced,device-name=galaxy-postgres-data,auto-delete=no \
   --tags=k8s,http-server,https-server \
   --scopes=cloud-platform \
-  --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair"
+  --metadata=ssh-keys="debian:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair",persistent-volume-size=139Gi,gcp_batch_service_account_email=galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com
 ```
 
 If you'd like to automatically run the playbook on first boot, include the
@@ -70,9 +106,23 @@ following option with the above `gcloud` command:
 ```bash
 --metadata-from-file=user-data=bin/user_data.sh
 ```
+
 **Note**: Both disks use `auto-delete=no` so the disks are retained after VM
 deletion. You can toggle these if you want the disks to be automatically deleted
 with the VM.
+
+If you change the persistent disk size, review the following disk sizes in this
+order:
+
+1. the VM disk size (`--create-disk ... size=...GB`)
+2. `persistent-volume-size` metadata variable
+3. `nfs_size` in `defaults/main.yml`. If using `bin/user_data.sh`, it will set this so can skip.
+4. `galaxy_persistence_size` in `defaults/main.yml`. If using `bin/user_data.sh`, it will set this so can skip.
+
+On GCP, disk sizes are specified in GB while Kubernetes PVCs use Gi. So a
+`150GB` disk is only about `139Gi` usable capacity for `nfs_size` and same for
+`galaxy_persistence_size`.
+
 
 ### Restoring from Existing Data
 
@@ -134,8 +184,8 @@ creating an inventory file for the VM:
 bin/inventory.sh --name gcp --key my-key.pem --ip 11.22.33.44 > inventories/vm.ini
 ```
 
-Then run the playbook. Check out the [examples](command_examples.md) for different
-ways to run the playbook.
+Then run the playbook. Check out the [examples](command_examples.md) for
+different ways to run the playbook.
 
 ```bash
 ansible-playbook -i inventories/vm.ini playbook.yml
@@ -151,69 +201,6 @@ variable (see [docs/CNPG_database_restore.md](docs/CNPG_database_restore.md)):
 
 Galaxy will be available at `http://INSTANCE_IP/` once deployment completes
 (typically ~6 minutes).
-
-### GCP Batch Job Runner
-
-The Galaxy deployment can be configured to use Google Cloud Batch for job execution, allowing Galaxy to scale job processing independently of the Kubernetes cluster.
-
-#### Prerequisites
-
-1. **GCP Service Account**: Create a service account with appropriate permissions:
-   ```bash
-   gcloud iam service-accounts create galaxy-batch-runner \
-     --project=YOUR_PROJECT_ID
-
-   # Grant required permissions
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="serviceAccount:galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/batch.jobsEditor"
-
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="serviceAccount:galaxy-batch-runner@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/iam.serviceAccountUser"
-   ```
-
-2. **Firewall Rules**: Ensure GCP Batch VMs can access the NFS server:
-   ```bash
-   gcloud compute firewall-rules create allow-nfs-for-batch \
-     --project=YOUR_PROJECT_ID \
-     --direction=INGRESS \
-     --priority=1000 \
-     --network=default \
-     --action=ALLOW \
-     --rules=tcp:2049,udp:2049,tcp:111,udp:111 \
-     --source-ranges=10.0.0.0/8 \
-     --target-tags=k8s
-   ```
-
-3. **Kubernetes Secret**: Create a secret with the service account key:
-   ```bash
-   kubectl create secret generic gcp-batch-key \
-     --from-file=key.json=/path/to/service-account-key.json \
-     --namespace galaxy
-   ```
-
-#### Deployment
-
-Deploy Galaxy with GCP Batch enabled:
-
-```bash
-ansible-playbook -i inventories/vm.ini playbook.yml \
-  --extra-vars "enable_gcp_batch=true" \
-  --extra-vars "gcp_batch_service_account_email=galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com" \
-  --extra-vars "gcp_batch_region=us-east4" \
-  --extra-vars "galaxy_values_files=['values/values.yml','values/batch.yml','values/v26.0.yml','values/rules.yml']"
-```
-
-#### What Gets Configured Automatically
-
-When `enable_gcp_batch=true`, the playbook automatically:
-- **Detects NFS LoadBalancer IP**: Configures internal LoadBalancer for NFS with source IP restrictions
-- **Detects NFS Export Path**: Automatically finds the Galaxy PVC export path using `showmount`
-- **Updates job_conf.yml**: Injects NFS server IP and export path into GCP Batch runner configuration
-- **Restarts Deployments**: Applies configuration changes by restarting Galaxy pods
-
-No manual intervention required for NFS path detection or configuration updates.
 
 ## Deleting the VM
 

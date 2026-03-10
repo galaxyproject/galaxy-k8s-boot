@@ -2,12 +2,12 @@
 # Default variables for galaxy_k8s_deployment role
 
 # Control flags for what components to install
-setup_system: true
+setup_system: false
 setup_rke2: true
 setup_nfs: true
 setup_storage: true
 setup_ingress: true
-deploy_galaxy: false
+deploy_galaxy: true
 deploy_pulsar: false
 
 # CVMFS Configuration (installed when setup_system is true)
