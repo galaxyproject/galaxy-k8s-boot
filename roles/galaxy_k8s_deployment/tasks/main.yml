@@ -10,6 +10,10 @@
   ansible.builtin.include_tasks: rke2_setup.yml
   when: setup_rke2 | default(true)
 
+- name: Include Helm repository setup tasks
+  ansible.builtin.include_tasks: helm_setup.yml
+  when: setup_helm | default(false)
+
 - name: Include NFS storage setup tasks
   ansible.builtin.include_tasks: nfs_setup.yml
   when: setup_nfs | default(true)
