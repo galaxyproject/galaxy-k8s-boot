@@ -1,5 +1,5 @@
 ---
-# System Setup Tasks
+# System Setup Tasks for bare-bones VMs
 - name: Install system packages
   ansible.builtin.apt:
     name: "{{ system_packages }}"
@@ -7,21 +7,79 @@
     update_cache: true
   become: true
 
-- name: Install Helm
-  ansible.builtin.shell:
-    executable: /bin/bash
-    cmd: "set -o pipefail && curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash -s"
-    creates: /usr/local/bin/helm
+- name: Install RKE2 prerequisite packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - iptables
+      - apparmor-utils
+    state: present
   become: true
 
-- name: Remove existing stable Helm repo
-  kubernetes.core.helm_repository:
-    name: stable
-    state: absent
+- name: Create RKE2 directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/rancher/rke2
+    - /var/lib/rancher/rke2
+    - /usr/local/bin
+  become: true
 
-- name: Install Helm repositories
-  kubernetes.core.helm_repository:
-    name: "{{ item.name }}"
-    state: present
-    repo_url: "{{ item.url }}"
-  loop: "{{ helm_repositories }}"
+- name: Check if RKE2 is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/rke2
+  register: rke2_binary
+
+- name: Download RKE2 installation script
+  ansible.builtin.get_url:
+    url: https://get.rke2.io
+    dest: /tmp/install-rke2.sh
+    mode: '0755'
+    timeout: 30
+  when: not rke2_binary.stat.exists
+  become: true
+
+- name: Install RKE2 binaries
+  ansible.builtin.shell: |
+    INSTALL_RKE2_VERSION="{{ rke2_version }}" \
+    INSTALL_RKE2_TYPE=server \
+    /tmp/install-rke2.sh
+  when: not rke2_binary.stat.exists
+  become: true
+
+- name: Create kubectl symlink
+  ansible.builtin.file:
+    src: /var/lib/rancher/rke2/bin/kubectl
+    dest: /usr/local/bin/kubectl
+    state: link
+    force: true
+  become: true
+
+- name: Clean up installation script
+  ansible.builtin.file:
+    path: /tmp/install-rke2.sh
+    state: absent
+  become: true
+
+- name: Download Helm installation script
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    dest: /tmp/get_helm.sh
+    mode: "0755"
+  become: true
+
+- name: Install Helm
+  ansible.builtin.shell:
+    cmd: /tmp/get_helm.sh --version {{ helm_version }}
+    creates: /usr/local/bin/helm
+  become: true
+  environment:
+    DESIRED_VERSION: "{{ helm_version }}"
+
+- name: Clean up Helm installation script
+  ansible.builtin.file:
+    path: /tmp/get_helm.sh
+    state: absent
+  become: true

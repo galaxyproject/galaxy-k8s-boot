@@ -4,6 +4,7 @@
 # Control flags for what components to install
 setup_system: false
 setup_rke2: true
+setup_helm: false
 setup_nfs: true
 setup_storage: true
 setup_ingress: true
@@ -17,7 +18,9 @@ galaxy_cvmfs_repos_enabled: config-repo
 cvmfs_quota_limit: 4000
 cvmfs_http_proxies: ["DIRECT"]
 
-# System Setup
+# System Setup (used only if setup_system is true)
+rke2_version: v1.35.1+rke2r1  # https://github.com/rancher/rke2/tags
+helm_version: v3.19.0         # https://github.com/helm/helm/tags
 system_packages:
   - python3
   - python3-pip

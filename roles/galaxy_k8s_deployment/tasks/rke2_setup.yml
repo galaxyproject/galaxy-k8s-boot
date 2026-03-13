@@ -49,6 +49,7 @@
   ansible.builtin.shell: |
     /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/control-plane- || true
     /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node-role.kubernetes.io/master- || true
+    /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml taint nodes --all node.cloudprovider.kubernetes.io/uninitialized- || true
   become: true
   changed_when: false
 
