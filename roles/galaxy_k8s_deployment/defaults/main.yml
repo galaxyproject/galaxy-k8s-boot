@@ -10,6 +10,7 @@ setup_storage: true
 setup_ingress: true
 deploy_galaxy: true
 deploy_pulsar: false
+deploy_monitor: true
 
 # CVMFS Configuration (installed when setup_system is true)
 setup_cvmfs: true
@@ -129,3 +130,10 @@ pulsar_chart: cloudve/pulsar
 pulsar_chart_version: "0.2.0"
 pulsar_deps_version: "1.1.1"
 pulsar_api_key: ""
+
+# Galaxy K8s Monitor Configuration
+monitor_chart: cloudve/galaxy-k8s-monitor
+monitor_chart_version: "0.1.1"
+monitor_image: afgane/galaxy-k8s-monitor
+monitor_namespace: galaxy
+monitor_base_path: /monitor

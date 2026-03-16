@@ -1,0 +1,24 @@
+---
+# Galaxy K8s Monitor Application Setup Tasks
+- name: Helm install galaxy-k8s-monitor
+  kubernetes.core.helm:
+    name: galaxy-k8s-monitor
+    namespace: "{{ monitor_namespace }}"
+    chart_ref: "{{ monitor_chart }}"
+    chart_version: "{{ monitor_chart_version }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+    values:
+      ingress:
+        enabled: true
+        className: nginx
+        hosts:
+          - host: ""
+            paths:
+              - path: "{{ monitor_base_path }}"
+                pathType: ImplementationSpecific
+      monitor:
+        image:
+          repository: "{{ monitor_image }}"
+          tag: "latest"
+        namespace: "{{ monitor_namespace }}"
+        basePath: "{{ monitor_base_path }}"
