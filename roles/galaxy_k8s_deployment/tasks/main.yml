@@ -33,3 +33,7 @@
 - name: Include Pulsar application setup tasks
   ansible.builtin.include_tasks: pulsar_application.yml
   when: deploy_pulsar | default(false)
+
+- name: Include Galaxy K8s Monitor setup tasks
+  ansible.builtin.include_tasks: monitor_application.yml
+  when: deploy_monitor | default(true)
