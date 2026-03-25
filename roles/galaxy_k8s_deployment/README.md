@@ -111,7 +111,7 @@ setup_postgres_storage: true               # Setup local-path storage for Postgr
 
 ```yaml
 setup_cert_manager: false                  # Required for CNPG skip-initdb plugin
-cert_manager_version: "v1.14.0"            # cert-manager chart version
+cert_manager_version: "v1.20.0"            # cert-manager chart version
 cnpg_skip_initdb_enabled: true             # Enable PostgreSQL existing data reuse
 cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
 cnpg_skip_initdb_namespace: "galaxy-deps"  # Must match CNPG operator namespace
@@ -135,7 +135,7 @@ galaxy_values_files: ["values/values.yml"] # Path to Galaxy values files
 galaxy_persistence_size: "128Gi"           # Galaxy data volume size
 galaxy_db_password: "galaxydbpassword"     # PostgreSQL password
 galaxy_user: "default-user@galaxyproject.org" # Galaxy admin user
-galaxy_api_key: ""                         # Galaxy API key
+galaxy_bootstrap_api_key: ""               # Galaxy bootstrap API key
 galaxy_job_max_cores: 1                    # Max CPU cores per job
 galaxy_job_max_mem: 4                      # Max memory per job (GB)
 ```
@@ -170,7 +170,7 @@ This role has optional dependencies:
 ```yaml
 ---
 - name: Deploy Galaxy on Kubernetes
-  hosts: vm
+  hosts: vms
   gather_facts: true
   become: true
   roles:
@@ -184,7 +184,7 @@ This role has optional dependencies:
         deploy_galaxy: true
         rke2_token: "my-secure-token"
         galaxy_values_files: ["values/my-galaxy-config.yml"]
-        galaxy_api_key: "my-api-key"
+        galaxy_bootstrap_api_key: "my-api-key"
 ```
 
 ### Deployment on Bare Ubuntu VMs
@@ -194,7 +194,7 @@ For fresh Ubuntu installations requiring full setup:
 ```yaml
 ---
 - name: Deploy Galaxy on bare Ubuntu VM
-  hosts: vm
+  hosts: vms
   gather_facts: true
   become: true
   roles:
@@ -208,7 +208,7 @@ For fresh Ubuntu installations requiring full setup:
         deploy_galaxy: true
         rke2_token: "my-secure-token"
         galaxy_values_files: ["values/my-galaxy-config.yml"]
-        galaxy_api_key: "my-api-key"
+        galaxy_bootstrap_api_key: "my-api-key"
 ```
 
 ### Pulsar Deployment
@@ -216,7 +216,7 @@ For fresh Ubuntu installations requiring full setup:
 ```yaml
 ---
 - name: Deploy Pulsar for distributed job execution
-  hosts: vm
+  hosts: vms
   gather_facts: true
   become: true
   roles:

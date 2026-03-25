@@ -8,7 +8,7 @@
 ansible-playbook -i inventory playbook.yml \
   -e "rke2_token=my-secure-token" \
   -e "chart_values_file=values/values.yml" \
-  -e "galaxy_api_key=my-api-key"
+  -e "galaxy_bootstrap_api_key=my-api-key"
 ```
 
 ## Galaxy Restoration Examples
@@ -63,7 +63,7 @@ ansible-playbook -i inventories/vm.ini playbook.yml \
   -e "setup_system=true" \
   -e "application=galaxy" \
   -e "chart_values_file=values/values.yml" \
-  -e "galaxy_api_key=my-api-key"
+  -e "galaxy_bootstrap_api_key=my-api-key"
 ```
 
 ### 3. Infrastructure Only (No Applications)
@@ -95,7 +95,7 @@ rke2_token: "your-cluster-token"          # Always required for RKE2
 ```yaml
 # Galaxy Configuration
 galaxy_values_files: ["values/custom.yml"]   # Path to your values files
-galaxy_api_key: "your-api-key"            # Galaxy master API key
+galaxy_bootstrap_api_key: "your-api-key"  # Galaxy bootstrap API key
 galaxy_user: "admin@galaxy.org"           # Admin user email
 galaxy_persistence_size: "50Gi"           # Data volume size
 
