@@ -9,7 +9,7 @@ packages:
   - ansible
 runcmd:
   - mkdir /mnt/block_storage
-  - cat /dev/urandom | tr -dc 'a-zA-Z0-9_+-' | head -c 32 > /run/galaxy_api_key
+  - cat /dev/urandom | tr -dc 'a-zA-Z0-9_+-' | head -c 32 > /run/galaxy_bootstrap_api_key
   - cat /dev/urandom | tr -dc 'a-zA-Z0-9_+-' | head -c 32 > /run/pulsar_api_key
   - git clone https://github.com/galaxyproject/galaxy-k8s-boot.git /run/galaxy-k8s-boot
   - |
@@ -26,4 +26,4 @@ runcmd:
     rke2_disable=["rke2-traefik", "rke2-ingress-nginx"]
     rke2_debug=true
     EOF
-  - cd /run/galaxy-k8s-boot && ansible-playbook -i inventories/localhost playbook.yml --extra-vars "job_max_cores=$(($(nproc) - 2))" --extra-vars "job_max_mem=$(($(free -m | awk '/^Mem:/{print $2}') - 6144))" --extra-vars "application=galaxy" --extra-vars "galaxy_api_key=$(cat /run/galaxy_api_key)" --extra-vars "pulsar_api_key=$(cat /run/pulsar_api_key)"
+  - cd /run/galaxy-k8s-boot && ansible-playbook -i inventories/localhost playbook.yml --extra-vars "job_max_cores=$(($(nproc) - 2))" --extra-vars "job_max_mem=$(($(free -m | awk '/^Mem:/{print $2}') - 6144))" --extra-vars "application=galaxy" --extra-vars "galaxy_bootstrap_api_key=$(cat /run/galaxy_bootstrap_api_key)" --extra-vars "pulsar_api_key=$(cat /run/pulsar_api_key)"

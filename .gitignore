@@ -13,3 +13,4 @@ kubeconfig.yaml
 image_prep.ini
 vm.ini
 ea-no-commit/
+conductor/

@@ -411,7 +411,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     galaxy_persistence_size="${PV_SIZE}"
     galaxy_db_password="gxy-db-password"
     galaxy_user="dev@galaxyproject.org"
-    galaxy_api_key="galaxypassword"
+    galaxy_bootstrap_api_key="galaxypassword"
     restore_galaxy=$RESTORE_GALAXY
     INVEOF
 
