@@ -496,3 +496,10 @@
     - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
     - rabbitmq_user_exists is defined
     - not rabbitmq_user_exists
+
+- name: Deploy Kubernetes Job to import workflows
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    template: workflow_import_job.yml.j2
+  when: galaxy_workflow_urls | length > 0

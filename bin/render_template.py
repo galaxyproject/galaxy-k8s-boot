@@ -7,13 +7,20 @@ import argparse
 from jinja2 import Template
 from pprint import pprint
 
+import json
+
 def render_template(template, values):
     if not os.path.exists(template):
         print(f"ERROR: Template not found: {template}")
         return
 
     with open(template, "r") as f:
-        t = Template(f.read())
+        content = f.read()
+    
+    from jinja2 import Environment
+    env = Environment()
+    env.filters['to_json'] = lambda x: json.dumps(x)
+    t = env.from_string(content)
 
     print(t.render(**values))
 

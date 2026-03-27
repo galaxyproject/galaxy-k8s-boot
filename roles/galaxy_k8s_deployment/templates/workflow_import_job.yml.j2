@@ -1,0 +1,97 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "galaxy-workflow-import-{{ ansible_date_time.epoch }}"
+  namespace: "galaxy"
+  labels:
+    app: galaxy-workflow-import
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        app: galaxy-workflow-import
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: workflow-import
+        image: python:3.11-slim
+        command:
+        - /bin/sh
+        - -c
+        - |
+          pip install --no-cache-dir bioblend requests
+          
+          python3 - <<EOF
+          import os
+          import time
+          import requests
+          from bioblend.galaxy import GalaxyInstance
+
+          galaxy_url = "http://galaxy-nginx.galaxy.svc.cluster.local:8000"
+          bootstrap_api_key = "{{ galaxy_bootstrap_api_key | default('galaxypassword') }}"
+          galaxy_user_email = "{{ galaxy_user | default('default-user@galaxyproject.org') }}"
+          workflow_urls = {{ galaxy_workflow_urls | to_json }}
+
+          print(f"Waiting for Galaxy API to be ready at {galaxy_url}...")
+          max_retries = 60
+          retry_interval = 10
+          for i in range(max_retries):
+              try:
+                  response = requests.get(f"{galaxy_url}/api/version", timeout=10)
+                  if response.status_code == 200:
+                      print("Galaxy API is ready.")
+                      break
+              except requests.RequestException:
+                  pass
+              print(f"Galaxy API not ready (attempt {i+1}/{max_retries}). Retrying in {retry_interval}s...")
+              time.sleep(retry_interval)
+          else:
+              print("Timed out waiting for Galaxy API.")
+              exit(1)
+
+          # Use bootstrap API key to create a regular user API key
+          print(f"Creating/retrieving API key for {galaxy_user_email} using bootstrap key...")
+          try:
+              gi_master = GalaxyInstance(url=galaxy_url, key=bootstrap_api_key)
+              
+              # 1. Find the admin user
+              users = gi_master.users.get_users()
+              user = next((u for u in users if u['email'] == galaxy_user_email), None)
+              
+              if not user:
+                  print(f"Error: User {galaxy_user_email} not found.")
+                  exit(1)
+              
+              user_id = user['id']
+              print(f"Found user {galaxy_user_email} with ID {user_id}")
+              
+              # 2. Create/Retrieve API key for this user
+              # BioBlend's create_user_apikey returns the key (existing or new)
+              user_api_key = gi_master.users.create_user_apikey(user_id)
+              print("Successfully retrieved/created user-specific API key.")
+              
+          except Exception as e:
+              print(f"Failed during API key bootstrapping: {e}")
+              exit(1)
+
+          # Use the newly created/retrieved user API key for workflow imports
+          gi = GalaxyInstance(url=galaxy_url, key=user_api_key)
+
+          for url in workflow_urls:
+              print(f"Importing workflow from {url}...")
+              try:
+                  # Fetch the workflow content
+                  resp = requests.get(url)
+                  resp.raise_for_status()
+                  workflow_data = resp.json()
+                  
+                  # Import into Galaxy
+                  import_res = gi.workflows.import_workflow_dict(workflow_data)
+                  print(f"Successfully imported workflow: {import_res.get('name')} (ID: {import_res.get('id')})")
+              except Exception as e:
+                  print(f"Failed to import workflow from {url}: {e}")
+                  exit(1)
+
+          print("All workflows processed.")
+          EOF
