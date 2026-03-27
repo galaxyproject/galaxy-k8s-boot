@@ -1,0 +1,125 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "galaxy-imports-{{ ansible_date_time.epoch }}"
+  namespace: "galaxy"
+  labels:
+    app: galaxy-imports
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: galaxy-imports
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: galaxy-imports
+        image: python:3.11-slim
+        command:
+        - /bin/sh
+        - -c
+        - |
+          pip install --no-cache-dir bioblend requests
+          
+          python3 - <<EOF
+          import os
+          import time
+          import requests
+          from bioblend.galaxy import GalaxyInstance
+
+          galaxy_url = "http://galaxy-nginx.galaxy.svc.cluster.local:8000"
+          bootstrap_api_key = "{{ galaxy_bootstrap_api_key | default('galaxypassword') }}"
+          galaxy_user_email = "{{ galaxy_user | default('default-user@galaxyproject.org') }}"
+          workflow_urls = {{ galaxy_workflow_urls | to_json }}
+          dataset_urls = {{ galaxy_dataset_urls | to_json }}
+
+          print(f"Waiting for Galaxy API to be ready at {galaxy_url}...")
+          max_retries = 60
+          retry_interval = 10
+          for i in range(max_retries):
+              try:
+                  response = requests.get(f"{galaxy_url}/api/version", timeout=10)
+                  if response.status_code == 200:
+                      print(f"Galaxy API is ready (status 200). Version: {response.json().get('version_major')}.{response.json().get('version_minor')}")
+                      break
+                  else:
+                      print(f"Galaxy API returned status {response.status_code} (attempt {i+1}/{max_retries})")
+              except requests.RequestException as e:
+                  print(f"Galaxy API not ready (attempt {i+1}/{max_retries}): {e}")
+              
+              time.sleep(retry_interval)
+          else:
+              print("Timed out waiting for Galaxy API.")
+              exit(1)
+
+          # Use bootstrap API key to create/retrieve a regular user API key
+          print(f"Creating/retrieving API key for {galaxy_user_email} using bootstrap key...")
+          try:
+              gi_master = GalaxyInstance(url=galaxy_url, key=bootstrap_api_key)
+              
+              # 1. Find the admin user
+              users = gi_master.users.get_users()
+              user = next((u for u in users if u['email'] == galaxy_user_email), None)
+              
+              if not user:
+                  print(f"Error: User {galaxy_user_email} not found.")
+                  exit(1)
+              
+              user_id = user['id']
+              print(f"Found user {galaxy_user_email} with ID {user_id}")
+              
+              # 2. Create/Retrieve API key for this user
+              user_api_key = gi_master.users.create_user_apikey(user_id)
+              print("Successfully retrieved/created user-specific API key.")
+              
+          except Exception as e:
+              print(f"Failed during API key bootstrapping: {e}")
+              exit(1)
+
+          # Use the newly created/retrieved user API key for imports
+          gi = GalaxyInstance(url=galaxy_url, key=user_api_key)
+
+          # --- Import Datasets ---
+          if dataset_urls:
+              print(f"Importing {len(dataset_urls)} datasets...")
+              try:
+                  # Create a history for the imported data
+                  history = gi.histories.create_history(name="Imported Datasets")
+                  history_id = history['id']
+                  print(f"Created history 'Imported Datasets' (ID: {history_id})")
+                  
+                  for entry in dataset_urls:
+                      url = entry.get('url')
+                      file_type = entry.get('file_type', 'auto')
+                      print(f"Uploading dataset from {url} (type: {file_type})...")
+                      
+                      # gi.tools.put_url is specifically for uploading from URLs
+                      upload_res = gi.tools.put_url(
+                          content=url,
+                          history_id=history_id,
+                          file_type=file_type,
+                          to_posix_lines=True
+                      )
+                      print(f"Started upload for URL: {url}")
+              except Exception as e:
+                  print(f"Failed during dataset upload: {e}")
+                  exit(1)
+
+          # --- Import Workflows ---
+          if workflow_urls:
+              print(f"Importing {len(workflow_urls)} workflows...")
+              for url in workflow_urls:
+                  print(f"Importing workflow from {url}...")
+                  try:
+                      resp = requests.get(url)
+                      resp.raise_for_status()
+                      workflow_data = resp.json()
+                      import_res = gi.workflows.import_workflow_dict(workflow_data)
+                      print(f"Successfully imported workflow: {import_res.get('name')} (ID: {import_res.get('id')})")
+                  except Exception as e:
+                      print(f"Failed to import workflow from {url}: {e}")
+                      exit(1)
+
+          print("All post-deployment setup tasks completed.")
+          EOF

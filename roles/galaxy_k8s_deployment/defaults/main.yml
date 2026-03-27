@@ -96,6 +96,14 @@ ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=rea
 galaxy_workflow_urls:
   - "https://raw.githubusercontent.com/galaxyproject/iwc/refs/heads/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
 
+# Datasets to upload automatically after Galaxy is deployed
+# Each entry is a dict with 'url' and optional 'file_type'
+galaxy_dataset_urls:
+  - url: "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"
+    file_type: "gtf"
+  - url: "https://zenodo.org/records/13987631/files/SRR5085167_forward.fastqsanger.gz"
+  - url: "https://zenodo.org/records/13987631/files/SRR5085167_reverse.fastqsanger.gz"
+
 # Galaxy Application Configuration
 galaxy_chart: cloudve/galaxy
 galaxy_chart_version: "6.7.2"
