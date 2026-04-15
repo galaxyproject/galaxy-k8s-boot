@@ -20,6 +20,7 @@ IMAGE_FAMILY="galaxy-k8s-boot"
 IMAGE_NAME=""
 PLAYBOOK="image_prep.yml"
 KEEP_VM=false
+PUBLIC=true
 DRY_RUN=false
 VERBOSE=""
 
@@ -76,6 +77,7 @@ $(hi OPTIONS)
     $(hi --machine-type) TYPE  VM machine type. Default $(hi $MACHINE_TYPE)
     $(hi --vm-name) NAME       Override temporary VM name. Default $(hi $VM_NAME)
     $(hi --keep-vm)            Don't delete VM after image creation (for debugging)
+    $(hi --public)             Make image public (roles/compute.imageUser to allAuthenticatedUsers)
     $(hi -v)|$(hi --verbose)          Verbose Ansible output
     $(hi -n)|$(hi --dry-run)          Show what would be done without executing
     $(hi -h)|$(hi --help)             Show this help message
@@ -110,6 +112,7 @@ while [[ $# -gt 0 ]]; do
         --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
         --vm-name) VM_NAME="$2"; shift 2 ;;
         --keep-vm) KEEP_VM=true; shift ;;
+        --public) PUBLIC=true; shift ;;
         -v|--verbose) VERBOSE="-v"; shift ;;
         -n|--dry-run) DRY_RUN=true; shift ;;
         -h|--help|help) help; exit 0 ;;
@@ -181,6 +184,14 @@ if [[ "$DRY_RUN" == "true" ]]; then
     echo "         --family=$IMAGE_FAMILY \\"
     echo "         --storage-location=us"
     echo ""
+    if [[ "$PUBLIC" == "true" ]]; then
+        echo "  5b. Make image public:"
+        echo "      gcloud compute images add-iam-policy-binding $IMAGE_NAME \\"
+        echo "          --project=$PROJECT \\"
+        echo "          --member=\"allAuthenticatedUsers\" \\"
+        echo "          --role=\"roles/compute.imageUser\""
+        echo ""
+    fi
     if [[ "$KEEP_VM" == "true" ]]; then
         echo "  6. Keep VM (--keep-vm set)"
     else
@@ -290,6 +301,15 @@ gcloud compute images create "$IMAGE_NAME" \
     --source-disk-zone="$ZONE" \
     --family="$IMAGE_FAMILY" \
     --storage-location=us
+
+if [[ "$PUBLIC" == "true" ]]; then
+    echo "==> Making image public..."
+    gcloud compute images add-iam-policy-binding "$IMAGE_NAME" \
+        --project="$PROJECT" \
+        --member="allAuthenticatedUsers" \
+        --role="roles/compute.imageUser" \
+        --quiet
+fi
 
 # --- Step 6: Delete VM (unless --keep-vm) ---
 # Restore normal trap (success path)
