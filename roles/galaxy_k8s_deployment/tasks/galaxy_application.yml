@@ -279,8 +279,11 @@
     update_repo_cache: true
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
     values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
-    set_values: "{{ galaxy_helm_extra_sets | default([]) }}"
+    set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
   vars:
+    _helm_prefix_sets:
+      - value: "ingress.path={{ galaxy_prefix }}"
+      - value: "ingress.hosts[0].paths[0].path={{ galaxy_prefix }}"
     _helm_values_base:
       persistence:
         size: "{{ galaxy_persistence_size }}"
