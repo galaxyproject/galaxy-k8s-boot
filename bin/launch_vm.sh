@@ -399,7 +399,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
 
     mkdir -p /tmp/ansible-inventory
     cat > /tmp/ansible-inventory/localhost << INVEOF
-    [vm]
+    [vms]
     127.0.0.1 ansible_connection=local ansible_python_interpreter="/usr/bin/python3"
 
     [all:vars]
