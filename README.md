@@ -229,6 +229,55 @@ Then, delete the VM using:
 gcloud compute instances delete INSTANCE_NAME --zone=us-east4-c [--quiet]
 ```
 
+## Automatic Data Import (PostInstall Hook)
+
+Galaxy can automatically import datasets, workflows, and histories after deployment using the simplified ABM bootstrap postInstall hook. This feature requires:
+
+- Galaxy Helm chart version 6.8.0+ with postInstall job support
+- ABM (Automated BenchMarking) 2.12.0+ with `config bootstrap` command
+
+### Usage
+
+Enable automatic import by adding postInstall configuration to your values files:
+
+```yaml
+postInstallJob:
+  enabled: true
+  galaxyUser: "admin@galaxy.org"  # Your admin user email
+  bootstrapConfig: |
+    datasets:
+      "Tutorial Data":
+        - "https://zenodo.org/records/1324070/files/SRR891268_1.fastq.gz"
+        - "https://zenodo.org/records/1324070/files/SRR891268_2.fastq.gz"
+    workflows:
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
+    histories:
+      - "https://example.com/exported-history.tar.gz"
+```
+
+### Pre-built Profiles
+
+Use the included profiles for common setups:
+
+```bash
+# Launch with AnVIL demo data
+bin/launch_vm.sh my-galaxy --git-repo https://github.com/ksuderman/galaxy-k8s-boot --git-branch postinstall-bootstrap-simplified -f profiles/anvil-bootstrap.yml
+
+# Or add the demo mixin to any deployment
+bin/launch_vm.sh my-galaxy -f values/values.yml -f mixins/postinstall-demo.yml
+```
+
+### Configuration Format
+
+The `bootstrapConfig` uses standard ABM bootstrap YAML format:
+
+- **datasets**: Import files into named histories (or "Configured Datasets" for simple lists)
+- **workflows**: Import .ga workflow files  
+- **histories**: Import exported Galaxy history archives
+- **workflows-no-tools**: Import workflows without installing tools
+
+See the [ABM documentation](https://github.com/galaxyproject/gxabm) for complete configuration details.
+
 ## Installing Pulsar
 
 The playbook can set up a Pulsar node instead of Galaxy. The invocation process is the same with the only difference being the `application` variable.
