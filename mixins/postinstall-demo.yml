@@ -1,0 +1,27 @@
+# Demonstration of the simplified postInstall bootstrap functionality
+# Add this mixin to enable automatic import of sample data and workflows
+
+postInstallJob:
+  enabled: true
+  galaxyUser: "admin@galaxy.org"  # Change this to your admin user email
+  bootstrapConfig: |
+    # Simple dataset imports (creates "Configured Datasets" history)
+    datasets:
+      - "https://zenodo.org/records/example/files/sample.fastq.gz"
+      - "https://zenodo.org/records/example/files/reference.fasta"
+
+    # Organized dataset imports (creates named histories)
+    datasets:
+      "RNA-seq Tutorial Data":
+        - "https://zenodo.org/records/1324070/files/SRR891268_1.fastq.gz"
+        - "https://zenodo.org/records/1324070/files/SRR891268_2.fastq.gz"
+      "Reference Data":
+        - "https://zenodo.org/records/1324070/files/Saccharomyces_cerevisiae.R64-1-1.100.gtf.gz"
+
+    # Workflow imports
+    workflows:
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
+
+    # History imports (exported Galaxy histories)
+    histories:
+      - "https://example.com/exported-history.tar.gz"
