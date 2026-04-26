@@ -1,0 +1,4 @@
+configs:
+  galaxy.yml:
+    galaxy:
+      logo_url: null
