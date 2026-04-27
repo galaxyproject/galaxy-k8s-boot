@@ -10,6 +10,7 @@ BOOT_DISK_SIZE="100GB"
 DISK_SIZE="150GB"
 POSTGRES_DISK_SIZE="10GB"
 DISK_TYPE="pd-balanced"
+GALAXY_CHART="cloudve/galaxy"
 GALAXY_CHART_VERSION="6.7.0"
 GALAXY_DEPS_VERSION="1.1.1"
 GIT_BRANCH="master"
@@ -53,6 +54,7 @@ Options:
   -r, --git-repo REPO               Git repository URL (default: $GIT_REPO)
   -s, --disk-size SIZE              Size of NFS persistent disk (default: $DISK_SIZE)
   -z, --zone ZONE                   GCP zone (default: $ZONE)
+  --galaxy-chart CHART              Galaxy Helm chart location (default: $GALAXY_CHART)
   --galaxy-chart-version VERSION    Galaxy Helm chart version (default: $GALAXY_CHART_VERSION)
   --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
   --postgres-disk DISK_NAME         Name of PostgreSQL disk (default: galaxy-postgres-INSTANCE_NAME)
@@ -75,6 +77,9 @@ Examples:
 
   # Launch VM with specific Galaxy chart versions
   $0 -k "ssh-rsa AAAAB3..." --galaxy-chart-version "6.0.0" --galaxy-deps-version "1.1.0" my-galaxy-vm
+
+  # Launch VM with custom Galaxy chart location
+  $0 -k "ssh-rsa AAAAB3..." --galaxy-chart "ksuderman/galaxy" --galaxy-chart-version "6.7.0" my-galaxy-vm
 
   # Launch VM with multiple Helm values files (order matters - later files override earlier ones)
   $0 -k "ssh-rsa AAAAB3..." -f values/values.yml -f mixins/v26.1.yml my-galaxy-vm
@@ -149,6 +154,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -z|--zone)
             ZONE="$2"
+            shift 2
+            ;;
+        --galaxy-chart)
+            GALAXY_CHART="$2"
             shift 2
             ;;
         --galaxy-chart-version)
@@ -389,6 +398,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     PV_SIZE="${PV_SIZE_VALUE}"
     GIT_REPO="${GIT_REPO}"
     GIT_BRANCH="${GIT_BRANCH}"
+    GALAXY_CHART="${GALAXY_CHART}"
     GALAXY_CHART_VERSION="${GALAXY_CHART_VERSION}"
     GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
@@ -418,12 +428,13 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
     echo "[`date`] - Git Repository: ${GIT_REPO}"
     echo "[`date`] - Git Branch: ${GIT_BRANCH}"
+    echo "[`date`] - Galaxy Chart: ${GALAXY_CHART}"
     echo "[`date`] - Galaxy Chart Version: ${GALAXY_CHART_VERSION}"
     echo "[`date`] - Galaxy Deps Version: ${GALAXY_DEPS_VERSION}"
     echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_JSON}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/PLACEHOLDER_VM_USER/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"enable_gcp_batch\": true, \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}}" playbook.yml
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/PLACEHOLDER_VM_USER/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"enable_gcp_batch\": true, \"galaxy_chart\": \"${GALAXY_CHART}\", \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}}" playbook.yml
 
     echo "[`date`] - User data script completed."
     '
