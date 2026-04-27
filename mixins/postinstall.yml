@@ -1,0 +1,12 @@
+postInstallJob:
+  enabled: true
+  galaxyUser: "suderman@jhu.edu"
+  bootstrapConfig: |
+    # Workflow imports
+    workflows:
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
+      - "https://benchmarking-inputs.s3.amazonaws.com/Variant/Galaxy-Workflow-Variant_analysis_on_WGS_PE_data.ga"
+    # History imports (exported Galaxy histories)
+    histories:
+      - "https://benchmarking-inputs.s3.amazonaws.com/ERR3485802/Galaxy-History-VC-Test-Data.tar.gz"
+      - "https://benchmarking-inputs.s3.amazonaws.com/RNASeq/Galaxy-History-SRR24043307-downsampled-20.tar.gz"
