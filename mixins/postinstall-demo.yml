@@ -7,8 +7,8 @@ postInstallJob:
   bootstrapConfig: |
     # Simple dataset imports (creates "Configured Datasets" history)
     datasets:
-      - "https://zenodo.org/records/example/files/sample.fastq.gz"
-      - "https://zenodo.org/records/example/files/reference.fasta"
+      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
+      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read12.fastq.gz"
 
     # Organized dataset imports (creates named histories)
     datasets:
@@ -17,6 +17,11 @@ postInstallJob:
         - "https://zenodo.org/records/13987631/files/SRR5085167_reverse.fastqsanger.gz"
       "Reference Data":
         - "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"
+        - "https://benchmarking-inputs.s3.amazonaws.com/SRR24043307/SRR24043307-1.fastq.gz"
+        - "https://benchmarking-inputs.s3.amazonaws.com/SRR24043307/SRR24043307-2.fastq.gz"
+      "ChIP-Seq":
+        - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
+        - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read2.fastq.gz"
 
     # Workflow imports
     workflows:
