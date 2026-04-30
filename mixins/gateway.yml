@@ -1,0 +1,10 @@
+gateway:
+  enabled: true
+  gatewayClassName: istio
+  istio:
+    timeout: "600s"
+    maxRequestHeadersKb: 96
+    streamIdleTimeout: "600s"
+
+ingress:
+  enabled: false
