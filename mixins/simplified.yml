@@ -2,11 +2,6 @@ image:
   repository: ksuderman/galaxy-simplified
   tag: "26.1"
 
-gateway:
-  enabled: true
-ingress:
-  enabled: false
-
 configs:
   galaxy.yml:
     galaxy:

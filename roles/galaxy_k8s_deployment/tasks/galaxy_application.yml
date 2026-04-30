@@ -80,7 +80,7 @@
   kubernetes.core.helm:
     name: galaxy-deps
     namespace: galaxy-deps
-    chart_ref: "cloudve/galaxy-deps"
+    chart_ref: "{{ galaxy_deps_chart }}"
     chart_version: "{{ galaxy_deps_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
 
