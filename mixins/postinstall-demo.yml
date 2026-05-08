@@ -13,14 +13,14 @@ postInstallJob:
     # Organized dataset imports (creates named histories)
     datasets:
       "RNA-seq Tutorial Data":
-        - "https://zenodo.org/records/1324070/files/SRR891268_1.fastq.gz"
-        - "https://zenodo.org/records/1324070/files/SRR891268_2.fastq.gz"
+        - "https://zenodo.org/records/13987631/files/SRR5085167_forward.fastqsanger.gz"
+        - "https://zenodo.org/records/13987631/files/SRR5085167_reverse.fastqsanger.gz"
       "Reference Data":
-        - "https://zenodo.org/records/1324070/files/Saccharomyces_cerevisiae.R64-1-1.100.gtf.gz"
+        - "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"
 
     # Workflow imports
     workflows:
-      - "https://raw.githubusercontent.com/galaxyproject/iwc/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/refs/heads/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
 
     # History imports (exported Galaxy histories)
     histories:
