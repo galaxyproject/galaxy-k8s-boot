@@ -1,0 +1,86 @@
+name: Update Galaxy Chart Version
+
+on:
+  repository_dispatch:
+    types: [update-galaxy-chart]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-chart-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from payload
+        id: extract-version
+        run: |
+          VERSION="${{ github.event.client_payload.version }}"
+          echo "new_version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "New Galaxy chart version: ${VERSION}"
+
+      - name: Update galaxy chart version in defaults
+        run: |
+          NEW_VERSION="${{ steps.extract-version.outputs.new_version }}"
+          DEFAULTS_FILE="roles/galaxy_k8s_deployment/defaults/main.yml"
+
+          echo "Updating galaxy_chart_version to ${NEW_VERSION}"
+
+          # Backup the file
+          cp "${DEFAULTS_FILE}" "${DEFAULTS_FILE}.bak"
+
+          # Update the galaxy_chart_version line
+          sed -i "s/^galaxy_chart_version: .*/galaxy_chart_version: \"${NEW_VERSION}\"/" "${DEFAULTS_FILE}"
+
+          # Verify the change was made
+          NEW_VERSION_CHECK=$(grep '^galaxy_chart_version:' "${DEFAULTS_FILE}" | sed 's/galaxy_chart_version: "//' | sed 's/"//')
+          if [ "${NEW_VERSION_CHECK}" != "${NEW_VERSION}" ]; then
+            echo "Version update failed. Expected: ${NEW_VERSION}, Got: ${NEW_VERSION_CHECK}"
+            exit 1
+          fi
+
+          echo "Successfully updated galaxy_chart_version to ${NEW_VERSION}"
+
+          # Show the diff
+          echo "Changes made:"
+          diff "${DEFAULTS_FILE}.bak" "${DEFAULTS_FILE}" || true
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update galaxy chart to v${{ steps.extract-version.outputs.new_version }}"
+          title: "Update Galaxy Chart to v${{ steps.extract-version.outputs.new_version }}"
+          body: |
+            ## 🚀 Automated Galaxy Chart Update
+
+            This PR automatically updates the Galaxy Helm chart dependency to the newly released version.
+
+            **New Version:** `v${{ steps.extract-version.outputs.new_version }}`
+            **Release:** https://github.com/galaxyproject/galaxy-helm/releases/tag/v${{ steps.extract-version.outputs.new_version }}
+
+            ### Changes:
+            - Updated `galaxy_chart_version` in `roles/galaxy_k8s_deployment/defaults/main.yml`
+
+            ### Testing:
+            - [ ] Verify chart version is correct in defaults file
+            - [ ] Test deployment in staging environment
+            - [ ] Confirm Galaxy functionality works with new chart version
+
+            ### Files Changed:
+            - `roles/galaxy_k8s_deployment/defaults/main.yml`
+
+            ---
+            *This PR was created automatically by the galaxy-helm release process.*
+          branch: update-galaxy-chart-${{ steps.extract-version.outputs.new_version }}
+          base: master
+          labels: |
+            automated
+            dependencies
+            galaxy
+          delete-branch: true
