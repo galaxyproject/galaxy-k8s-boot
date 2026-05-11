@@ -429,7 +429,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     nfs_size="${PV_SIZE}"
     galaxy_persistence_size="${PV_SIZE}"
     galaxy_db_password="gxy-db-password"
-    galaxy_user="dev@galaxyproject.org"
+    galaxy_user="default-user@galaxyproject.org"
     galaxy_bootstrap_api_key="galaxypassword"
     restore_galaxy=$RESTORE_GALAXY
     INVEOF
@@ -450,11 +450,19 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
 
 EOF
 
-# Replace VM_USER placeholder in the generated user-data
+# Replace placeholders in the generated user-data
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s/PLACEHOLDER_VM_USER/${VM_USER}/g" "$TEMP_USER_DATA"
+    sed -i '' "s|PLACEHOLDER_VM_USER|${VM_USER}|g" "$TEMP_USER_DATA"
+    sed -i '' "s|\${GALAXY_CHART}|${GALAXY_CHART}|g" "$TEMP_USER_DATA"
+    sed -i '' "s|\${GALAXY_CHART_VERSION}|${GALAXY_CHART_VERSION}|g" "$TEMP_USER_DATA"
+    sed -i '' "s|\${GALAXY_DEPS_CHART}|${GALAXY_DEPS_CHART}|g" "$TEMP_USER_DATA"
+    sed -i '' "s|\${GALAXY_DEPS_VERSION}|${GALAXY_DEPS_VERSION}|g" "$TEMP_USER_DATA"
 else
-    sed -i "s/PLACEHOLDER_VM_USER/${VM_USER}/g" "$TEMP_USER_DATA"
+    sed -i "s|PLACEHOLDER_VM_USER|${VM_USER}|g" "$TEMP_USER_DATA"
+    sed -i "s|\${GALAXY_CHART}|${GALAXY_CHART}|g" "$TEMP_USER_DATA"
+    sed -i "s|\${GALAXY_CHART_VERSION}|${GALAXY_CHART_VERSION}|g" "$TEMP_USER_DATA"
+    sed -i "s|\${GALAXY_DEPS_CHART}|${GALAXY_DEPS_CHART}|g" "$TEMP_USER_DATA"
+    sed -i "s|\${GALAXY_DEPS_VERSION}|${GALAXY_DEPS_VERSION}|g" "$TEMP_USER_DATA"
 fi
 
 echo "ℹ Generated custom user_data.sh at $TEMP_USER_DATA"
