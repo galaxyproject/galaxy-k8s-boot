@@ -2,6 +2,7 @@ postInstallJob:
   enabled: true
   galaxyUser: "default-user@galaxyproject.org"
   bootstrapConfig: |
+    version: 1
     # Workflow imports
     workflows:
       - "https://raw.githubusercontent.com/galaxyproject/iwc/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
@@ -24,3 +25,16 @@ postInstallJob:
       "ChIP-Seq Input Data":
         - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
         - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read2.fastq.gz"
+
+    terra:
+      - namespace: "notebooks-canary-project"
+        workspace: "SArS-CoV-2-Genome copy"
+        datasets:
+          "Reference Data":
+            - pattern: "Tables/reference/SARS-CoV-2_reference_genome.fasta"
+              datatype: "fasta"
+          "Sample Data":
+            - pattern: "Tables/sample/VA_sample_forward_reads.fastq"
+              datatype: "fastqsanger"
+            - pattern: "Tables/sample/VA_sample_reverse_reads.fastq"
+              datatype: "fastqsanger"
