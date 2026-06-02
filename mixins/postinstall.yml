@@ -1,6 +1,6 @@
 postInstallJob:
   enabled: true
-  image: ksuderman/gxabm:2.13.0-dev0
+  image: quay.io/galaxy/abm:2.13.0
   galaxyUser: "default-user@galaxyproject.org"
   bootstrapConfig: |
     version: 1
