@@ -38,7 +38,7 @@ jobs:
 
       - name: Run yamllint
         run: |
-          yamllint -d "{extends: default, rules: {line-length: {max: 120}}}" .
+          yamllint .
 
       - name: Run ansible-lint
         run: |
