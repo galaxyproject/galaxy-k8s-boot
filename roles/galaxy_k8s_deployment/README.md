@@ -129,16 +129,61 @@ ingress_version: "4.13.2"                  # NGINX ingress chart version
 
 ```yaml
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.7.2"              # Galaxy chart version
+galaxy_chart_version: "6.8.0"              # Galaxy chart version
 galaxy_deps_version: "1.1.1"               # Galaxy dependencies version
 galaxy_values_files: ["values/values.yml"] # Path to Galaxy values files
 galaxy_persistence_size: "128Gi"           # Galaxy data volume size
 galaxy_db_password: "galaxydbpassword"     # PostgreSQL password
 galaxy_user: "default-user@galaxyproject.org" # Galaxy admin user
 galaxy_bootstrap_api_key: ""               # Galaxy bootstrap API key
+galaxy_import_profile:                     # Helm values files for postInstall imports
+  - "files/profiles/anvil.yaml"            # Set to [] to disable post-install imports
 galaxy_job_max_cores: 1                    # Max CPU cores per job
 galaxy_job_max_mem: 4                      # Max memory per job (GB)
 ```
+
+### Automatic Data Import
+
+`galaxy_import_profile` is a list of Helm values files merged into the Galaxy
+chart deployment to configure the [postInstall job][abm-docs]. By default the
+bundled AnVIL profile (`files/profiles/anvil.yaml`) is used, which enables the
+postInstall job and imports sample RNA-seq datasets and a workflow after
+deployment. Set `galaxy_import_profile: []` to skip post-install imports
+entirely.
+
+**Requirements**: Galaxy Helm chart 6.8.0+, ABM 2.12.0+.
+
+To define custom imports, create a Helm values file with a `postInstallJob`
+block and reference it via `galaxy_import_profile`:
+
+```yaml
+galaxy_import_profile:
+  - "values/my-imports.yaml"
+```
+
+```yaml
+# values/my-imports.yaml
+postInstallJob:
+  enabled: true
+  bootstrapConfig: |
+    datasets:
+      "Tutorial Data":
+        - "https://zenodo.org/records/13987631/files/SRR5085167_forward.fastqsanger.gz"
+        - "https://zenodo.org/records/13987631/files/SRR5085167_reverse.fastqsanger.gz"
+        - "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"
+    workflows:
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/refs/heads/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
+```
+
+The `bootstrapConfig` format supports:
+- **datasets**: Import files into named histories
+- **workflows**: Import `.ga` workflow files
+- **histories**: Import exported Galaxy history archives
+- **workflows-no-tools**: Import workflows without installing tools
+
+See the [ABM documentation][abm-docs] for the complete configuration format.
+
+[abm-docs]: https://github.com/galaxyproject/gxabm
 
 ### Pulsar Application Configuration
 

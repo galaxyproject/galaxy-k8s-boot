@@ -1,0 +1,9 @@
+image:
+  repository: ksuderman/galaxy-simplified
+  tag: "26.1"
+
+configs:
+  galaxy.yml:
+    galaxy:
+      brand: Simplified
+

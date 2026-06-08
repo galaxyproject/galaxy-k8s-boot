@@ -80,7 +80,7 @@
   kubernetes.core.helm:
     name: galaxy-deps
     namespace: galaxy-deps
-    chart_ref: "cloudve/galaxy-deps"
+    chart_ref: "{{ galaxy_deps_chart }}"
     chart_version: "{{ galaxy_deps_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
 
@@ -237,14 +237,24 @@
         galaxy-project-logo-white-square.png: "{{ lookup('file', 'files/galaxy-project-logo-white-square.png') | b64encode }}"
         anvil-project-logo-white.png: "{{ lookup('file', 'files/anvil-project-logo-white.png') | b64encode }}"
 
+- name: Write Galaxy post-install user values
+  ansible.builtin.copy:
+    dest: /tmp/galaxy-postinstall-user.yaml
+    content: |
+      postInstallJob:
+        galaxyUser: "{{ galaxy_user }}"
+    mode: '0644'
+  delegate_to: localhost
+  become: false
+  when: galaxy_user | default('') | length > 0
+
 - name: Prepare Galaxy values files list
   set_fact:
     _galaxy_values_files: >-
-      {%- if galaxy_values_files is defined and galaxy_values_files | length > 0 -%}
-        {{ galaxy_values_files }}
-      {%- else -%}
-        {{ ['values/values.yml'] }}
-      {%- endif -%}
+      {%- set base = galaxy_values_files if (galaxy_values_files is defined and galaxy_values_files | length > 0) else ['values/values.yml'] -%}
+      {%- set profile = galaxy_import_profile | default([]) -%}
+      {%- set user_file = ['/tmp/galaxy-postinstall-user.yaml'] if (galaxy_user | default('') | length > 0) else [] -%}
+      {{ base + profile + user_file }}
 
 - name: Display Galaxy values files being used
   debug:
@@ -386,116 +396,3 @@
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
-
-# ============================================================================
-# Persistent Data Reuse: RabbitMQ Credential Synchronization
-# ============================================================================
-# When reusing persistent disks, RabbitMQ may have different credentials than
-# what the new Kubernetes secret generated. This syncs the credentials.
-- name: Wait for RabbitMQ to be ready
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Pod
-    name: galaxy-rabbitmq-server-server-0
-    namespace: galaxy
-    kubeconfig: "{{ kubeconfig_path }}"
-    wait: true
-    wait_condition:
-      type: Ready
-      status: "True"
-    wait_timeout: 300
-  when: restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-
-- name: Get expected RabbitMQ credentials from secret
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Secret
-    name: galaxy-rabbitmq-server-default-user
-    namespace: galaxy
-    kubeconfig: "{{ kubeconfig_path }}"
-  register: rabbitmq_secret
-  when: restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-
-- name: Decode expected RabbitMQ username
-  set_fact:
-    expected_rabbitmq_user: "{{ rabbitmq_secret.resources[0].data.username | b64decode }}"
-    expected_rabbitmq_pass: "{{ rabbitmq_secret.resources[0].data.password | b64decode }}"
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - rabbitmq_secret.resources | length > 0
-
-- name: Check existing RabbitMQ users
-  shell: |
-    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- rabbitmqctl list_users --formatter json
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  register: rabbitmq_users_json
-  ignore_errors: true
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - expected_rabbitmq_user is defined
-
-- name: Parse RabbitMQ users
-  set_fact:
-    rabbitmq_existing_users: "{{ rabbitmq_users_json.stdout | from_json | map(attribute='user') | list }}"
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - rabbitmq_users_json.stdout is defined
-    - rabbitmq_users_json.stdout != ""
-    - rabbitmq_users_json.rc == 0
-
-- name: Check if expected user exists in RabbitMQ
-  set_fact:
-    rabbitmq_user_exists: "{{ expected_rabbitmq_user in rabbitmq_existing_users }}"
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - rabbitmq_existing_users is defined
-    - expected_rabbitmq_user is defined
-
-- name: Display RabbitMQ credential status
-  debug:
-    msg: "RabbitMQ expected user '{{ expected_rabbitmq_user }}' exists: {{ rabbitmq_user_exists | default(false) }}"
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - expected_rabbitmq_user is defined
-
-- name: Create expected RabbitMQ user (credential sync)
-  shell: |
-    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
-      rabbitmqctl add_user '{{ expected_rabbitmq_user }}' '{{ expected_rabbitmq_pass }}'
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - rabbitmq_user_exists is defined
-    - not rabbitmq_user_exists
-
-- name: Set administrator tag for new RabbitMQ user
-  shell: |
-    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
-      rabbitmqctl set_user_tags '{{ expected_rabbitmq_user }}' administrator
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - rabbitmq_user_exists is defined
-    - not rabbitmq_user_exists
-
-- name: Set permissions for new RabbitMQ user
-  shell: |
-    kubectl exec -n galaxy galaxy-rabbitmq-server-server-0 -c rabbitmq -- \
-      rabbitmqctl set_permissions -p / '{{ expected_rabbitmq_user }}' '.*' '.*' '.*'
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - rabbitmq_user_exists is defined
-    - not rabbitmq_user_exists
-
-- name: Display RabbitMQ credential sync completed
-  debug:
-    msg: "Created RabbitMQ user '{{ expected_rabbitmq_user }}' with administrator permissions"
-  when:
-    - restore_galaxy and detected_galaxy_pvc_uuid | default('') != ''
-    - rabbitmq_user_exists is defined
-    - not rabbitmq_user_exists

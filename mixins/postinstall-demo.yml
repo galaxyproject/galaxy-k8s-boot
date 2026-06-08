@@ -1,0 +1,32 @@
+# Demonstration of the simplified postInstall bootstrap functionality
+# Add this mixin to enable automatic import of sample data and workflows
+
+postInstallJob:
+  enabled: true
+  galaxyUser: "admin@galaxy.org"  # Change this to your admin user email
+  bootstrapConfig: |
+    # Simple dataset imports (creates "Configured Datasets" history)
+    datasets:
+      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
+      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read12.fastq.gz"
+
+    # Organized dataset imports (creates named histories)
+    datasets:
+      "RNA-seq Tutorial Data":
+        - "https://zenodo.org/records/13987631/files/SRR5085167_forward.fastqsanger.gz"
+        - "https://zenodo.org/records/13987631/files/SRR5085167_reverse.fastqsanger.gz"
+      "Reference Data":
+        - "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"
+        - "https://benchmarking-inputs.s3.amazonaws.com/SRR24043307/SRR24043307-1.fastq.gz"
+        - "https://benchmarking-inputs.s3.amazonaws.com/SRR24043307/SRR24043307-2.fastq.gz"
+      "ChIP-Seq":
+        - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
+        - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read2.fastq.gz"
+
+    # Workflow imports
+    workflows:
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/refs/heads/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
+
+    # History imports (exported Galaxy histories)
+    histories:
+      - "https://example.com/exported-history.tar.gz"

@@ -39,6 +39,9 @@ bin/launch_vm.sh -k "ssh-rsa AAAAB3..." my-galaxy-vm
 
 # Auto-detect and restore
 bin/launch_vm.sh -k "ssh-rsa AAAAB3..." --restore-galaxy my-galaxy-vm
+
+# Deploy with post-install data imports using a mixin
+bin/launch_vm.sh my-galaxy-vm -f values/values.yml -f mixins/postinstall-demo.yml
 ```
 
 **What gets restored:**

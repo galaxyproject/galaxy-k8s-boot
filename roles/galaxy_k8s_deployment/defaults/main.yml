@@ -95,7 +95,8 @@ ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=rea
 # Galaxy Application Configuration
 galaxy_prefix: "/"
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.7.2"
+galaxy_chart_version: "6.8.0"
+galaxy_deps_chart: cloudve/galaxy-deps
 galaxy_deps_version: "1.1.1"
 
 # Galaxy Helm values files configuration
@@ -112,6 +113,10 @@ galaxy_persistence_size: "128Gi"
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
 galaxy_bootstrap_api_key: "galaxypassword"
+# Profile values file(s) to pass to galaxy-helm's postInstallJob.imports.
+# Set to [] to disable post-install imports entirely.
+galaxy_import_profile:
+  - "{{ role_path }}/files/profiles/anvil.yaml"
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4
 
