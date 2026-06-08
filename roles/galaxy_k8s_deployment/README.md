@@ -129,7 +129,7 @@ ingress_version: "4.13.2"                  # NGINX ingress chart version
 
 ```yaml
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.7.2"              # Galaxy chart version
+galaxy_chart_version: "6.8.0"              # Galaxy chart version
 galaxy_deps_version: "1.1.1"               # Galaxy dependencies version
 galaxy_values_files: ["values/values.yml"] # Path to Galaxy values files
 galaxy_persistence_size: "128Gi"           # Galaxy data volume size
