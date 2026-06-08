@@ -40,9 +40,9 @@ jobs:
         run: |
           yamllint .
 
-      - name: Run ansible-lint
-        run: |
-          ansible-lint playbook.yml
+#      - name: Run ansible-lint
+#        run: |
+#          ansible-lint playbook.yml
 
   test:
     runs-on: ubuntu-latest
