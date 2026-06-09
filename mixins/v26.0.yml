@@ -1,4 +1,4 @@
-# Galaxy 26.0 RC
+# Galaxy 26.0.0
 image:
   repository: quay.io/galaxyproject/galaxy-min
-  tag: "26.0-auto"
+  tag: "26.0.0"

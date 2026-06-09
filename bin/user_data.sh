@@ -110,7 +110,7 @@ write_files:
 
       mkdir -p /tmp/ansible-inventory
       cat > /tmp/ansible-inventory/localhost << EOF
-      [vm]
+      [vms]
       127.0.0.1 ansible_connection=local ansible_python_interpreter="/usr/bin/python3"
 
       [all:vars]

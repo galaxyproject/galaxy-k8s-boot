@@ -92,6 +92,7 @@ configs:
         # Max time a job will run before being deleted. Must be in seconds (end with 's'). Default 24hrs.
         max_run_duration: 86400s
         polling_interval: 30
+        # delete_completed_jobs: true # Not available until 26.1 (is in v26.1-auto images)
       local:
         load: galaxy.jobs.runners.local:LocalJobRunner
         workers: 3
@@ -135,6 +136,19 @@ configs:
         id: __IMPORT_WORKFLOW__
       - environment: local
         id: random_lines1
+      # Expression/param tools must run locally — TPV additive tag merge
+      # with the global DB causes reject:[local] to persist even when
+      # overridden, so route them here before TPV is consulted.
+      - environment: local
+        id: compose_text_param
+      - environment: local
+        id: map_param_value
+      - environment: local
+        id: param_value_from_file
+      - environment: local
+        id: tp_awk_tool
+      - environment: local
+        id: tp_grep_tool
     limits:
       - type: total_walltime
         window: 1  # number in days
@@ -144,12 +158,31 @@ jobs:
    rules:
     tpv_rules_local.yml:
       destinations:
+        k8s:
+          max_accepted_cores: 1
+          max_accepted_mem: 4
+          scheduling:
+            prefer:
+              - small-job
         gcp_batch:
           runner: gcp_batch
           params:
             docker_enabled: "true"
             cores: "{cores}"
             mem: "{mem}"
+            job_id_prefix: galaxy-batch
+      tools:
+        default:
+          scheduling:
+            prefer:
+              - small-job
+          rules:
+            - id: force_default_container_for_built_in_tools
+              if: |
+                from galaxy.tools import GALAXY_LIB_TOOLS_UNVERSIONED
+                tool.id in GALAXY_LIB_TOOLS_UNVERSIONED or "CONVERTER_" == tool.id[:10] or tool.is_datatype_converter
+              params:
+                docker_container_id_override: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
 
 extraVolumes:
   - name: static-images
