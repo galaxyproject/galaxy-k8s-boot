@@ -1,7 +1,7 @@
 postInstallJob:
   enabled: true
   image: quay.io/galaxyproject/abm:2.13.0
-  galaxyUser: "default-user@galaxyproject.org"
+  galaxyUser: "suderman@jhu.edu"
   bootstrapConfig: |
     version: 1
     # Workflow imports
@@ -13,29 +13,14 @@ postInstallJob:
       - "https://benchmarking-inputs.s3.amazonaws.com/ERR3485802/Galaxy-History-VC-Test-Data.tar.gz"
       - "https://benchmarking-inputs.s3.amazonaws.com/RNASeq/Galaxy-History-SRR24043307-downsampled-20.tar.gz"
     
-    # Creates a history named "Configured Datasets" for the datasets
-    datasets:
-      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
-      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read12.fastq.gz"
-
     # Organized dataset imports (creates named histories)
     datasets:
-      "RNA-seq Tutorial Data":
+      # Creates a history named "Configured Datasets" for the datasets
+      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
+      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read12.fastq.gz"
+      - "RNA-seq Tutorial Data":
         - "https://benchmarking-inputs.s3.amazonaws.com/SRR24043307/SRR24043307-1.fastq.gz"
         - "https://benchmarking-inputs.s3.amazonaws.com/SRR24043307/SRR24043307-2.fastq.gz"
-      "ChIP-Seq Input Data":
+      - "ChIP-Seq Input Data":
         - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
         - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read2.fastq.gz"
-
-    terra:
-      - namespace: "notebooks-canary-project"
-        workspace: "SArS-CoV-2-Genome copy"
-        datasets:
-          "Reference Data":
-            - pattern: "Tables/reference/SARS-CoV-2_reference_genome.fasta"
-              datatype: "fasta"
-          "Sample Data":
-            - pattern: "Tables/sample/VA_sample_forward_reads.fastq"
-              datatype: "fastqsanger"
-            - pattern: "Tables/sample/VA_sample_reverse_reads.fastq"
-              datatype: "fastqsanger"
