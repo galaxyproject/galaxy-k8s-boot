@@ -8,6 +8,7 @@ postInstallJob:
     workflows:
       - "https://raw.githubusercontent.com/galaxyproject/iwc/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
       - "https://benchmarking-inputs.s3.amazonaws.com/Variant/Galaxy-Workflow-Variant_analysis_on_WGS_PE_data.ga"
+    
     # History imports (exported Galaxy histories)
     histories:
       - "https://benchmarking-inputs.s3.amazonaws.com/ERR3485802/Galaxy-History-VC-Test-Data.tar.gz"
@@ -15,12 +16,12 @@ postInstallJob:
     
     # Organized dataset imports (creates named histories)
     datasets:
-      # Creates a history named "Configured Datasets" for the datasets
-      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
-      - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read12.fastq.gz"
-      - "RNA-seq Tutorial Data":
+      "Configured Datasets":
+        - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
+        - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read12.fastq.gz"
+      "RNA-seq Tutorial Data":
         - "https://benchmarking-inputs.s3.amazonaws.com/SRR24043307/SRR24043307-1.fastq.gz"
         - "https://benchmarking-inputs.s3.amazonaws.com/SRR24043307/SRR24043307-2.fastq.gz"
-      - "ChIP-Seq Input Data":
+      "ChIP-Seq Input Data":
         - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read1.fastq.gz"
         - "https://zenodo.org/record/1324070/files/wt_H3K4me3_read2.fastq.gz"
