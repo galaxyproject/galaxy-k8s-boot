@@ -237,6 +237,24 @@
         galaxy-project-logo-white-square.png: "{{ lookup('file', 'files/galaxy-project-logo-white-square.png') | b64encode }}"
         anvil-project-logo-white.png: "{{ lookup('file', 'files/anvil-project-logo-white.png') | b64encode }}"
 
+# - name: Write Galaxy post-install user values
+#   ansible.builtin.copy:
+#     dest: /tmp/galaxy-postinstall-user.yaml
+#     content: |
+#       postInstallJob:
+#         galaxyUser: "{{ galaxy_user }}"
+#     mode: '0644'
+#   delegate_to: localhost
+#   become: false
+#   when: galaxy_user | default('') | length > 0
+#
+# To also wire the file written above into the Helm values, uncomment the
+# `user_file` set line below and insert `user_file` between `profile` and `base`
+# in the returned list. It overrides the profile's galaxyUser, while user-defined
+# mixins (base) come last and still take precedence:
+#   {%- set user_file = ['/tmp/galaxy-postinstall-user.yaml'] if (galaxy_user | default('') | length > 0) else [] -%}
+#   {{ profile + user_file + base }}
+
 - name: Prepare Galaxy values files list
   set_fact:
     _galaxy_values_files: >-
