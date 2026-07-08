@@ -180,7 +180,7 @@
 
 - name: Get node internal IP for NFS access
   set_fact:
-    nfs_server: "{{ ansible_default_ipv4.address }}"
+    nfs_server: "{{ ansible_facts['default_ipv4']['address'] }}"
   when: enable_gcp_batch | default(false) | bool
 
 - name: Verify NFS service exists
