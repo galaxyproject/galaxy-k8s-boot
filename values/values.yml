@@ -1,7 +1,7 @@
 
 image:
   repository: quay.io/galaxyproject/galaxy-min
-  tag: "26.0"
+  tag: "26.1-auto"
 
 ingress:
   enabled: true
@@ -86,7 +86,7 @@ configs:
         docker_extra_volumes: "/cvmfs/data.galaxyproject.org:/cvmfs/data.galaxyproject.org:ro,/cvmfs/cloud.galaxyproject.org:/cvmfs/cloud.galaxyproject.org:ro"
 
         # Custom VM image with CVMFS pre-configured (update date as needed)
-        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-debian12-v2026-02-24
+        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2026-06-30
         # Job execution settings
         max_retry_count: 3
         # Max time a job will run before being deleted. Must be in seconds (end with 's'). Default 24hrs.
@@ -224,3 +224,23 @@ extraFileMappings:
               </div>
           </body>
       </html>
+
+webHandlers:
+  gunicorn:
+    timeout: 900             # 15 minutes!
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120    # 120 * 10 = 20 minutes!
+
+workflowHandlers:
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120
+
+jobHandlers:
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120

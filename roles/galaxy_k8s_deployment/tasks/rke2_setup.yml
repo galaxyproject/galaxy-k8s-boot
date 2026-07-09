@@ -57,21 +57,21 @@
   ansible.builtin.set_fact:
     kubeconfig_path: "/etc/rancher/rke2/rke2.yaml"
 
-- name: Create .kube directory for ubuntu user
+- name: Create .kube directory for login user
   ansible.builtin.file:
-    path: /home/ubuntu/.kube
+    path: "/home/{{ ansible_user }}/.kube"
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
     mode: '0755'
   become: true
 
-- name: Copy kubeconfig to ubuntu user home directory
+- name: Copy kubeconfig to login user home directory
   ansible.builtin.copy:
     src: /etc/rancher/rke2/rke2.yaml
-    dest: /home/ubuntu/.kube/config
-    owner: ubuntu
-    group: ubuntu
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
     mode: '0600'
     remote_src: true
   become: true
