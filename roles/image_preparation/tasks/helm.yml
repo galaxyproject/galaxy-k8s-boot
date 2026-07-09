@@ -1,7 +1,7 @@
 ---
 - name: Download Helm installation script
   ansible.builtin.get_url:
-    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    url: "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-{{ helm_version | regex_replace('^v?([0-9]+).*', '\\1') }}"
     dest: /tmp/get_helm.sh
     mode: "0755"
   become: true

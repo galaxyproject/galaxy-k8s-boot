@@ -6,11 +6,14 @@
   become: true
 
 - name: Remove temporary files
-  ansible.builtin.shell: |
-    rm -rf /tmp/*
-    rm -rf /var/tmp/*
-    rm -f /var/cache/apt/archives/*.deb
+  ansible.builtin.shell:
+    cmd: |
+      # Exclude .ansible* to avoid deleting Ansible's own temp files mid-task
+      find /tmp -mindepth 1 -maxdepth 1 -not -name '.ansible*' -not -name 'ansible_*' -exec rm -rf {} +
+      find /var/tmp -mindepth 1 -maxdepth 1 -not -name '.ansible*' -not -name 'ansible_*' -exec rm -rf {} +
+      rm -f /var/cache/apt/archives/*.deb
   ignore_errors: true
+  changed_when: false
   become: true
 
 - name: Reset history
