@@ -284,6 +284,7 @@
     chart_version: "{{ omit if (use_local_chart | default(false) | bool) else galaxy_chart_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
     update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
+    timeout: "20m0s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
     values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
