@@ -6,10 +6,10 @@ bold="\033[1m"
 
 NAME=$(basename $0)
 
-user=ubuntu
+user=debian
 key=~/.ssh/id_rsa
 ip=
-name=
+name=vm
 
 # Function used to highlight text.
 function hi() {
@@ -31,7 +31,7 @@ $(hi SYNOPSIS)
 $(hi OPTIONS)
     $(hi -i)|$(hi --ip)      public ip address of the server. Required.
     $(hi -k)|$(hi --key)     path to the public SSH key used to connect to the server. Default is $(hi $key).
-    $(hi -n)|$(hi --name)    hostname for the server. Required.
+    $(hi -n)|$(hi --name)    hostname for the server. Default is $(hi $name).
     $(hi -u)|$(hi --user)    username used to connect to the server.  Default is $(hi $user).
     $(hi -h)|$(hi --help)    print this help message and exit.
 

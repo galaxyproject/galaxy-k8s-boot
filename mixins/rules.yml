@@ -1,0 +1,13 @@
+jobs:
+  rules:
+    tpv_rules_local.yml:
+      tools:
+        toolshed.g2.bx.psu.edu/repos/iuc/metaphlan/metaphlan/.*:
+          cores: 16
+          mem: 96
+        toolshed.g2.bx.psu.edu/repos/iuc/fastp/fastp/.*:
+          cores: 8
+          mem: 32
+        toolshed.g2.bx.psu.edu/repos/devteam/fastqc/fastqc/.*:
+          cores: 16
+          mem: 64

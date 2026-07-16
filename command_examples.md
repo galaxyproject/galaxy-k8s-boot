@@ -8,8 +8,48 @@
 ansible-playbook -i inventory playbook.yml \
   -e "rke2_token=my-secure-token" \
   -e "chart_values_file=values/values.yml" \
-  -e "galaxy_api_key=my-api-key"
+  -e "galaxy_bootstrap_api_key=my-api-key"
 ```
+
+## Galaxy Restoration Examples
+
+### Fresh Installation (Default)
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "galaxy_user=admin@example.com"
+```
+
+### Auto-Detect and Restore
+
+Automatically find and restore from existing data:
+
+```bash
+ansible-playbook -i inventories/vm.ini playbook.yml \
+  --extra-vars "galaxy_user=admin@example.com" \
+  --extra-vars "restore_galaxy=true"
+```
+
+
+### Using GCP Launch Script
+
+```bash
+# Fresh installation
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." my-galaxy-vm
+
+# Auto-detect and restore
+bin/launch_vm.sh -k "ssh-rsa AAAAB3..." --restore-galaxy my-galaxy-vm
+
+# Deploy with post-install data imports using a mixin
+bin/launch_vm.sh my-galaxy-vm -f values/values.yml -f mixins/postinstall-demo.yml
+```
+
+**What gets restored:**
+- Galaxy NFS data (histories, datasets, job files)
+- PostgreSQL database (users, workflows, histories metadata)
+- RabbitMQ credentials
+
+See [docs/CNPG_database_restore.md](docs/CNPG_database_restore.md) for details.
 
 ### playbook.yml
 
@@ -26,7 +66,7 @@ ansible-playbook -i inventories/vm.ini playbook.yml \
   -e "setup_system=true" \
   -e "application=galaxy" \
   -e "chart_values_file=values/values.yml" \
-  -e "galaxy_api_key=my-api-key"
+  -e "galaxy_bootstrap_api_key=my-api-key"
 ```
 
 ### 3. Infrastructure Only (No Applications)
@@ -57,8 +97,8 @@ rke2_token: "your-cluster-token"          # Always required for RKE2
 
 ```yaml
 # Galaxy Configuration
-galaxy_values_file: "values/custom.yml"   # Path to your values file
-galaxy_api_key: "your-api-key"            # Galaxy master API key
+galaxy_values_files: ["values/custom.yml"]   # Path to your values files
+galaxy_bootstrap_api_key: "your-api-key"  # Galaxy bootstrap API key
 galaxy_user: "admin@galaxy.org"           # Admin user email
 galaxy_persistence_size: "50Gi"           # Data volume size
 

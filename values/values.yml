@@ -1,3 +1,8 @@
+
+image:
+  repository: quay.io/galaxyproject/galaxy-min
+  tag: "26.1-auto"
+
 ingress:
   enabled: true
   ingressClassName: ""
@@ -13,9 +18,9 @@ ingress:
 
 persistence:
   storageClass: nfs
-  size: 20Gi
 
 cvmfs:
+  deploy: false
   deployPostInstallFix: true
   cvmfscsi:
     cache:
@@ -32,7 +37,7 @@ cvmfs:
 
 postgresql:
   persistence:
-    storageClass: blockstorage
+    storageClass: postgres-storage
 
 rabbitmq:
   persistence:
@@ -42,22 +47,152 @@ configs:
   galaxy.yml:
     galaxy:
       enable_beta_gdpr: true
-      #require_login: true
-      # show_welcome_with_login: true
-      # allow_user_creation: false
       tus_upload_store: /galaxy/server/database/tmp/tus_upload_store
       # The URL linked by the "Galaxy/brand" text
       logo_url: https://anvil.terra.bio/#workspaces
       # The brand image source
-      logo_src: /static/images/galaxy_project_logo_white_square.png
+      logo_src: /static/images/galaxy-project-logo-white-square.png
       # The custom brand image source
-      logo_src_secondary: /static/images/anvilwhite.png
+      logo_src_secondary: /static/images/anvil-project-logo-white.png
       enable_quotas: true
+      single_user: default-user@galaxyproject.org
+      admin_users: default-user@galaxyproject.org
   job_conf.yml:
+    runners:
+      gcp_batch:
+        load: galaxy.jobs.runners.gcp_batch:GoogleCloudBatchJobRunner
+        workers: 4
+        # Basic GCP settings
+        project_id: anvil-and-terra-development
+        region: us-east4
+        service_account_email: galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com
+
+        # Network configuration (required for NFS access)
+        network: default
+        subnet: default
+
+        # Compute resources (defaults shown)
+        machine_type: n2-standard-4
+        vcpu: 1.0
+        memory_mib: 2048
+        boot_disk_size_gb: 100
+        boot_disk_type: pd-standard
+
+        # Container settings
+        use_container: true
+        # Note: container_image comes from tool requirements via Galaxy's container finder
+        galaxy_user_id: 10001
+        galaxy_group_id: 10001
+        docker_extra_volumes: "/cvmfs/data.galaxyproject.org:/cvmfs/data.galaxyproject.org:ro,/cvmfs/cloud.galaxyproject.org:/cvmfs/cloud.galaxyproject.org:ro"
+
+        # Custom VM image with CVMFS pre-configured (update date as needed)
+        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2026-06-30
+        # Job execution settings
+        max_retry_count: 3
+        # Max time a job will run before being deleted. Must be in seconds (end with 's'). Default 24hrs.
+        max_run_duration: 86400s
+        polling_interval: 30
+        # delete_completed_jobs: true # Not available until 26.1 (is in v26.1-auto images)
+      local:
+        load: galaxy.jobs.runners.local:LocalJobRunner
+        workers: 3
+    execution:
+      default: tpv_dispatcher
+      environments:
+        local:
+          runner: local
+        gcp_batch:
+          runner: gcp_batch
+    destinations:
+      - id: gcp_batch_default
+        runner: gcp_batch
+      - id: k8s_default
+        runner: k8s
+      - id: local_default
+        runner: local
+    tools:
+      - environment: local
+        id: upload1
+      - environment: local
+        id: __DATA_FETCH__
+      - environment: local
+        id: __EXPORT_HISTORY__
+      - environment: local
+        id: __IMPORT_HISTORY__
+      - environment: local
+        id: __SET_METADATA__
+      - environment: local
+        id: __EXTRACT_DATASET__
+      # Route interactive tools to Kubernetes
+      - environment: local
+        id: interactive_tool.*
+      # Route data source tools to Kubernetes
+      - environment: local
+        id: .*data_source.*
+      # Keep workflows internal to cluster
+      - environment: local
+        id: __EXPORT_WORKFLOW__
+      - environment: local
+        id: __IMPORT_WORKFLOW__
+      - environment: local
+        id: random_lines1
+      # Expression/param tools must run locally — TPV additive tag merge
+      # with the global DB causes reject:[local] to persist even when
+      # overridden, so route them here before TPV is consulted.
+      - environment: local
+        id: compose_text_param
+      - environment: local
+        id: map_param_value
+      - environment: local
+        id: param_value_from_file
+      - environment: local
+        id: tp_awk_tool
+      - environment: local
+        id: tp_grep_tool
     limits:
       - type: total_walltime
         window: 1  # number in days
-        value: '24:00:00'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
+        value: '96:00:00'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
+
+jobs:
+   rules:
+    tpv_rules_local.yml:
+      destinations:
+        k8s:
+          max_accepted_cores: 1
+          max_accepted_mem: 4
+          scheduling:
+            prefer:
+              - small-job
+        gcp_batch:
+          runner: gcp_batch
+          params:
+            docker_enabled: "true"
+            cores: "{cores}"
+            mem: "{mem}"
+            job_id_prefix: galaxy-batch
+      tools:
+        default:
+          scheduling:
+            prefer:
+              - small-job
+          rules:
+            - id: force_default_container_for_built_in_tools
+              if: |
+                from galaxy.tools import GALAXY_LIB_TOOLS_UNVERSIONED
+                tool.id in GALAXY_LIB_TOOLS_UNVERSIONED or "CONVERTER_" == tool.id[:10] or tool.is_datatype_converter
+              params:
+                docker_container_id_override: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+
+extraVolumes:
+  - name: static-images
+    configMap:
+      name: galaxy-static-images
+
+extraVolumeMounts:
+  - name: static-images
+    mountPath: /galaxy/server/static/images
+    readOnly: true
 
 extraFileMappings:
   /galaxy/server/static/welcome.html:
@@ -89,3 +224,23 @@ extraFileMappings:
               </div>
           </body>
       </html>
+
+webHandlers:
+  gunicorn:
+    timeout: 900             # 15 minutes!
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120    # 120 * 10 = 20 minutes!
+
+workflowHandlers:
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120
+
+jobHandlers:
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120

@@ -1,24 +1,18 @@
 ---
 # Galaxy Application Setup Tasks
-- name: Add CloudVE Helm repository
+- name: Ensure Helm repositories are available
   kubernetes.core.helm_repository:
-    name: cloudve
-    repo_url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+    name: "{{ item.name }}"
     state: present
+    repo_url: "{{ item.url }}"
+    force_update: true
+  loop: "{{ helm_repositories }}"
 
 - name: Create the galaxy-deps namespace
   kubernetes.core.k8s:
     kind: Namespace
     name: galaxy-deps
     state: present
-    kubeconfig: "{{ kubeconfig_path }}"
-
-- name: Helm install galaxy-deps
-  kubernetes.core.helm:
-    name: galaxy-deps
-    namespace: galaxy-deps
-    chart_ref: "cloudve/galaxy-deps"
-    chart_version: "{{ galaxy_deps_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
 
 - name: Create the galaxy namespace
@@ -28,23 +22,283 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
-- name: Copy the values file to the remote host
+# ============================================================================
+# Galaxy Data Restoration - Parse Mode
+# ============================================================================
+# Parse restoration mode EARLY so we can deploy CNPG plugin before galaxy-deps
+
+- name: Display restoration mode
+  debug:
+    msg: "Galaxy restoration mode: {{ 'Auto-detect and restore' if restore_galaxy else 'Fresh installation' }}"
+
+# ============================================================================
+# CNPG Skip-Initdb Plugin Deployment
+# ============================================================================
+# CRITICAL: Deploy plugin BEFORE galaxy-deps (which creates PostgreSQL cluster)
+# Plugin must be running to intercept CNPG's initdb request
+# As soon as the plugin is deployed, it does a no-op on initdb and allows PostgreSQL
+# to reuse existing data directories.
+
+- name: Deploy CNPG skip-initdb plugin for database restoration
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition: "{{ lookup('template', 'templates/cnpg_skip_initdb_plugin.yaml.j2') }}"
+  when: restore_galaxy
+
+- name: Wait for CNPG plugin pod to be ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ cnpg_skip_initdb_namespace }}"
+    label_selectors:
+      - "app=skip-initdb"
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: plugin_pod
+  until:
+    - plugin_pod.resources | length > 0
+    - plugin_pod.resources[0].status.phase == "Running"
+  retries: 10
+  delay: 3
+  when: restore_galaxy
+
+- name: Display CNPG plugin status
+  debug:
+    msg: "CNPG skip-initdb plugin deployed. Plugin will skip initdb."
+  when: restore_galaxy
+- name: Ensure CNPG plugin is NOT deployed in fresh install mode
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Deployment
+    name: skip-initdb
+    namespace: "{{ cnpg_skip_initdb_namespace }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+  when: not restore_galaxy
+
+- name: Helm install galaxy-deps
+  kubernetes.core.helm:
+    name: galaxy-deps
+    namespace: galaxy-deps
+    chart_ref: "{{ galaxy_deps_chart }}"
+    chart_version: "{{ galaxy_deps_version }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+
+# ============================================================================
+# Galaxy Data Restoration - Determine PVC UUID
+# ============================================================================
+# Restoration mode already parsed above. Now determine specific PVC UUID.
+
+- name: Auto-detect Galaxy PVC UUID from NFS exports
+  shell: |
+    # Note: glob must be expanded inside container, so we use sh -c
+    for dir in $(kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+      sh -c 'ls -d /export/pvc-* 2>/dev/null'); do
+      # Check if this looks like a Galaxy data directory (has objects/ subdirectory)
+      if kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+        test -d "$dir/objects" 2>/dev/null; then
+        # Extract UUID from path: /export/pvc-<uuid>
+        basename "$dir" | sed 's/^pvc-//'
+        exit 0
+      fi
+    done
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: auto_detected_uuid
+  ignore_errors: true
+  when: restore_galaxy
+
+- name: Set auto-detected PVC UUID
+  set_fact:
+    detected_galaxy_pvc_uuid: "{{ auto_detected_uuid.stdout | trim }}"
+  when:
+    - restore_galaxy
+    - auto_detected_uuid.stdout is defined
+    - auto_detected_uuid.stdout | trim != ''
+
+- name: Display determined PVC UUID
+  debug:
+    msg: "Using Galaxy PVC UUID: {{ detected_galaxy_pvc_uuid }}"
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is defined
+    - detected_galaxy_pvc_uuid != ''
+
+- name: Warn if auto-detection failed
+  debug:
+    msg: "WARNING: restore_galaxy=true but no existing PVC found in NFS exports. Falling back to fresh installation."
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is not defined or detected_galaxy_pvc_uuid == ''
+
+# Step 2: Restore Galaxy PVC if UUID determined
+- name: Restore Galaxy PVC from existing data
+  block:
+    - name: Set restore_galaxy_pvc_uuid for include
+      set_fact:
+        restore_galaxy_pvc_uuid: "{{ detected_galaxy_pvc_uuid }}"
+
+    - name: Include Galaxy PVC restoration tasks
+      ansible.builtin.include_tasks: restore_galaxy_pvc.yml
+
+    - name: Set Galaxy Helm values for restore mode
+      set_fact:
+        galaxy_helm_extra_sets:
+          - value: "galaxy.persistence.existingClaim=galaxy-galaxy-pvc"
+            value_type: string
+          - value: "galaxy.persistence.storageClass="
+            value_type: string
+
+  rescue:
+    - name: Log restoration failure
+      debug:
+        msg: |
+          WARNING: Galaxy PVC restoration failed. Falling back to fresh deployment.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+    - name: Clear restore variables to trigger fresh deployment
+      set_fact:
+        detected_galaxy_pvc_uuid: ""
+        galaxy_helm_extra_sets: []
+
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is defined
+    - detected_galaxy_pvc_uuid != ''
+
+- name: Set Galaxy Helm values for fresh deployment
+  set_fact:
+    galaxy_helm_extra_sets: []
+  when: not restore_galaxy or detected_galaxy_pvc_uuid | default('') == ''
+
+# ============================================================================
+# GCP Batch: NFS Server Configuration
+# ============================================================================
+# RKE2 without a cloud controller doesn't provision LoadBalancer external IPs.
+# Instead, we patch the NFS service to use the node's internal IP as an externalIP,
+# which is accessible from GCP Batch VMs in the same VPC.
+
+- name: Get node internal IP for NFS access
+  set_fact:
+    nfs_server: "{{ ansible_facts['default_ipv4']['address'] }}"
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Verify NFS service exists
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: nfs-provisioner-nfs-server-provisioner
+    namespace: nfs-provisioner
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: nfs_service_info
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Fail if NFS service not found
+  fail:
+    msg: "NFS service not found. Make sure NFS setup completed successfully."
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_service_info.resources | length == 0
+
+- name: Patch NFS service with node internal IP as externalIP
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: Service
+    name: nfs-provisioner-nfs-server-provisioner
+    namespace: nfs-provisioner
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      spec:
+        externalIPs:
+          - "{{ nfs_server }}"
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Display NFS server access method
+  debug:
+    msg: "Using node internal IP for NFS: {{ nfs_server }} (accessible from GCP Batch VMs in same VPC)"
+  when: enable_gcp_batch | default(false) | bool
+
+# ============================================================================
+# Install Galaxy
+# ============================================================================
+
+- name: Create ConfigMap for Galaxy static images
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-static-images
+        namespace: galaxy
+      binaryData:
+        galaxy-project-logo-white-square.png: "{{ lookup('file', 'files/galaxy-project-logo-white-square.png') | b64encode }}"
+        anvil-project-logo-white.png: "{{ lookup('file', 'files/anvil-project-logo-white.png') | b64encode }}"
+
+# - name: Write Galaxy post-install user values
+#   ansible.builtin.copy:
+#     dest: /tmp/galaxy-postinstall-user.yaml
+#     content: |
+#       postInstallJob:
+#         galaxyUser: "{{ galaxy_user }}"
+#     mode: '0644'
+#   delegate_to: localhost
+#   become: false
+#   when: galaxy_user | default('') | length > 0
+#
+# To also wire the file written above into the Helm values, uncomment the
+# `user_file` set line below and insert `user_file` between `profile` and `base`
+# in the returned list. It overrides the profile's galaxyUser, while user-defined
+# mixins (base) come last and still take precedence:
+#   {%- set user_file = ['/tmp/galaxy-postinstall-user.yaml'] if (galaxy_user | default('') | length > 0) else [] -%}
+#   {{ profile + user_file + base }}
+
+- name: Prepare Galaxy values files list
+  set_fact:
+    _galaxy_values_files: >-
+      {%- set base = galaxy_values_files if (galaxy_values_files is defined and galaxy_values_files | length > 0) else ['values/values.yml'] -%}
+      {%- set profile = galaxy_import_profile | default([]) -%}
+      {{ profile + base }}
+
+- name: Display Galaxy values files being used
+  debug:
+    msg: "Using Galaxy Helm values files: {{ _galaxy_values_files }}"
+
+- name: Copy Galaxy values files to the remote host
   ansible.builtin.copy:
-    src: "{{ galaxy_values_file }}"
-    dest: /tmp/values.yml
+    src: "{{ item }}"
+    dest: "/tmp/galaxy_values_{{ idx }}.yml"
     mode: '0644'
+  loop: "{{ _galaxy_values_files }}"
+  loop_control:
+    index_var: idx
+
+- name: Copy packaged local Galaxy chart to the remote host
+  ansible.builtin.copy:
+    src: "galaxy-{{ galaxy_chart_version }}.tgz"
+    dest: "/tmp/galaxy-chart.tgz"
+    mode: '0644'
+  when: use_local_chart | default(false) | bool
 
 - name: Helm install Galaxy
   kubernetes.core.helm:
     name: galaxy
     namespace: galaxy
-    chart_ref: "{{ galaxy_chart }}"
-    chart_version: "{{ galaxy_chart_version }}"
+    chart_ref: "{{ '/tmp/galaxy-chart.tgz' if (use_local_chart | default(false) | bool) else galaxy_chart }}"
+    chart_version: "{{ omit if (use_local_chart | default(false) | bool) else galaxy_chart_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
-    update_repo_cache: true
-    values_files:
-      - /tmp/values.yml
-    values:
+    update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
+    timeout: "20m0s"
+    values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
+  vars:
+    _helm_prefix_sets:
+      - value: "ingress.path={{ galaxy_prefix }}"
+      - value: "ingress.hosts[0].paths[0].path={{ galaxy_prefix }}"
+    _helm_values_base:
       persistence:
         size: "{{ galaxy_persistence_size }}"
       postgresql:
@@ -52,9 +306,7 @@
       configs:
         galaxy.yml:
           galaxy:
-            single_user: "{{ galaxy_user }}"
-            admin_users: "{{ galaxy_user }}"
-            master_api_key: "{{ galaxy_api_key | default(omit) }}"
+            bootstrap_admin_api_key: "{{ galaxy_bootstrap_api_key | default(omit) }}"
       jobs:
         rules:
           tpv_rules_local.yml:
@@ -62,3 +314,101 @@
               k8s:
                 max_cores: "{{ galaxy_job_max_cores }}"
                 max_mem: "{{ galaxy_job_max_mem }}"
+    _helm_values_gcp_batch: {}
+    _helm_values_cnpg_plugin:
+      postgresql:
+        cluster:
+          plugins:
+            - name: "{{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}"
+
+# ============================================================================
+# GCP Batch: NFS Export Path Detection
+# ============================================================================
+- name: Wait for Galaxy PVC to be bound
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: galaxy-galaxy-pvc
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: galaxy_pvc
+  until: galaxy_pvc.resources | length > 0 and galaxy_pvc.resources[0].status.phase == "Bound"
+  retries: 30
+  delay: 10
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Detect NFS export path for Galaxy PVC
+  shell: |
+    # Wait a moment for NFS export to be available
+    sleep 10
+
+    # Get NFS exports and find the PVC export path
+    showmount -e {{ nfs_server }} | grep '/export/pvc-' | head -1 | awk '{print $1}'
+  register: nfs_export_detection
+  retries: 10
+  delay: 3
+  until: nfs_export_detection.stdout != ""
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Set NFS export path for Galaxy database
+  set_fact:
+    nfs_export_path: "{{ nfs_export_detection.stdout }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_detection.stdout is defined
+    - nfs_export_detection.stdout != ""
+
+- name: Display detected NFS export path
+  debug:
+    msg: "Detected NFS export path for Galaxy PVC: {{ nfs_export_path }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+- name: Fail if NFS export path not detected
+  fail:
+    msg: "Could not detect NFS export path for Galaxy PVC. Available exports: {{ nfs_export_detection.stdout_lines | default('none') }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is not defined or nfs_export_path == ""
+
+# ============================================================================
+# GCP Batch: Update Configuration and Restart
+# ============================================================================
+- name: Get current job_conf.yml from ConfigMap
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: galaxy-configs
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: galaxy_configs
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Update job_conf.yml with gcp_batch_volumes for NFS access
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-configs
+        namespace: galaxy
+      # gcp_batch_volumes format: "server:/remote_path:/mount_path"
+      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'gcp_batch_volumes': nfs_server ~ ':' ~ nfs_export_path ~ ':/galaxy/server/database'}}}, recursive=True) | to_nice_yaml) }) }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+- name: Restart Galaxy deployments to pick up configuration changes
+  shell: kubectl rollout restart deployment {{ item }} -n galaxy
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  loop:
+    - galaxy-web
+    - galaxy-job-0
+    - galaxy-workflow
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined

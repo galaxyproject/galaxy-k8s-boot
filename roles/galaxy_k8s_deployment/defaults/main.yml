@@ -2,13 +2,15 @@
 # Default variables for galaxy_k8s_deployment role
 
 # Control flags for what components to install
-setup_system: true
+setup_system: false
 setup_rke2: true
+setup_helm: false
 setup_nfs: true
 setup_storage: true
 setup_ingress: true
-deploy_galaxy: false
+deploy_galaxy: true
 deploy_pulsar: false
+deploy_monitor: true
 
 # CVMFS Configuration (installed when setup_system is true)
 setup_cvmfs: true
@@ -17,7 +19,9 @@ galaxy_cvmfs_repos_enabled: config-repo
 cvmfs_quota_limit: 4000
 cvmfs_http_proxies: ["DIRECT"]
 
-# System Setup
+# System Setup (used only if setup_system is true)
+rke2_version: v1.36.2+rke2r1  # https://github.com/rancher/rke2/tags
+helm_version: v4.2.2          # https://github.com/helm/helm/tags
 system_packages:
   - python3
   - python3-pip
@@ -38,38 +42,105 @@ helm_repositories:
     url: https://charts.helm.sh/stable
   - name: cloudve
     url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+  - name: ksuderman
+    url: https://ksuderman.github.io/helm_charts
 
 # NFS Storage Configuration
 nfs_version: "1.8.0"
-nfs_persistence_storage_class: blockstorage
-nfs_size: "25Gi"
+# Size of the NFS PVC. On GCP, disk sizes are specified in GB while Kubernetes
+# PVCs use Gi, so a `150GB` disk is only about `139Gi` usable capacity. If you
+# change this, also review `galaxy_persistence_size` below and keep it at or
+# below the usable capacity of the underlying disk.
+nfs_size: "139Gi"
 nfs_default: false
 nfs_allow_expansion: true
-nfs_reclaim: Delete
+nfs_reclaim: Retain
+
+# NFS provisioner identifiers (used for persistent data reuse detection)
+nfs_provisioner_namespace: nfs-provisioner
+nfs_provisioner_release_name: nfs-provisioner
+nfs_provisioner_pod_name: "{{ nfs_provisioner_release_name }}-nfs-server-provisioner-0"
+nfs_provisioner_service_name: "{{ nfs_provisioner_release_name }}-nfs-server-provisioner"
 
 # Kubernetes Storage Configuration
 cluster_hostname: galaxy
 cinder_csi_version: "2.31.2"
 block_storage_disk_path: /mnt/block_storage
 
+# PostgreSQL Storage Configuration
+postgres_storage_disk_path: /mnt/postgres_storage
+setup_postgres_storage: true
+
+# cert-manager Configuration
+# Required for CNPG skip-initdb plugin TLS certificates
+setup_cert_manager: false
+cert_manager_version: "v1.20.0"
+
+# CNPG Skip-Initdb Plugin Configuration
+# Enable this to allow PostgreSQL to reuse existing data directories
+# Requires: cert-manager installed in the cluster
+cnpg_skip_initdb_enabled: true
+cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
+# IMPORTANT: Plugin must be deployed in same namespace as CNPG operator (i.e., galaxy-deps)
+cnpg_skip_initdb_namespace: "galaxy-deps"
+cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
+
+# Galaxy Restoration Control
+# When true, automatically detects and restores existing Galaxy PVC and database
+restore_galaxy: false
+
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
 
 # Galaxy Application Configuration
+use_local_chart: false
+galaxy_prefix: "/"
 galaxy_chart: cloudve/galaxy
 galaxy_chart_version: "6.8.1"
 galaxy_deps_chart: cloudve/galaxy-deps
 galaxy_deps_version: "1.1.1"
-galaxy_values_file: "values/values.yml"
-galaxy_persistence_size: "20Gi"
+
+# Galaxy Helm values files configuration
+# Supports multiple values files that will be merged in order
+# Example:
+#   galaxy_values_files: ["values/values.yml", "values/custom.yml"]
+galaxy_values_files:
+  - "values/values.yml"
+
+# Size requested by Galaxy's `galaxy-pvc` claim.
+# Keep it less than or equal to the usable space behind `nfs_size`, and
+# leave headroom if other PVCs also use the `nfs` storage class.
+galaxy_persistence_size: "115Gi"
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
-galaxy_api_key: ""
+galaxy_bootstrap_api_key: "galaxypassword"
+# Profile values file(s) to pass to galaxy-helm's postInstallJob.imports.
+# Set to [] to disable post-install imports entirely.
+galaxy_import_profile:
+  - "{{ role_path }}/files/profiles/anvil.yaml"
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4
+
+# GCP Batch Configuration
+# Set enable_gcp_batch=true to configure Galaxy for GCP Batch job runner
+# This will:
+#   - Detect and configure NFS LoadBalancer IP
+#   - Auto-detect NFS export path for Galaxy PVC
+#   - Update job_conf.yml with GCP Batch runner configuration
+#   - Restart Galaxy deployments to apply changes
+enable_gcp_batch: true
+gcp_batch_service_account_email: ""
+gcp_batch_region: "us-east4"
 
 # Pulsar Application Configuration
 pulsar_chart: cloudve/pulsar
 pulsar_chart_version: "0.2.0"
 pulsar_deps_version: "1.1.1"
 pulsar_api_key: ""
+
+# Galaxy K8s Monitor Configuration
+monitor_chart: cloudve/galaxy-k8s-monitor
+monitor_chart_version: "0.1.1"
+monitor_image: afgane/galaxy-k8s-monitor
+monitor_namespace: galaxy
+monitor_base_path: /monitor

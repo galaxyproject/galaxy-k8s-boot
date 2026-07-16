@@ -1,0 +1,8 @@
+configs:
+  galaxy.yml:
+    galaxy:
+      cleanup_jobs: never
+  job_conf.yml:
+    runners:
+      gcp_batch:
+        delete_completed_jobs: false

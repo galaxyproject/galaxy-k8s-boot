@@ -1,0 +1,116 @@
+---
+# This task file recreates the Galaxy PVC and PV pointing to existing data
+# on the NFS server, following the GKM persistence-restore pattern.
+
+- name: Get NFS provisioner service ClusterIP
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: nfs-provisioner-nfs-server-provisioner
+    namespace: nfs-provisioner
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: nfs_service
+
+- name: Set NFS server IP from ClusterIP
+  set_fact:
+    nfs_server_ip: "{{ nfs_service.resources[0].spec.clusterIP }}"
+
+- name: Log Galaxy PVC restoration attempt
+  debug:
+    msg: |
+      Restoring Galaxy PVC:
+        Name: galaxy-galaxy-pvc
+        UUID: {{ restore_galaxy_pvc_uuid }}
+        NFS Server: {{ nfs_server_ip }}
+        NFS Path: /export/pvc-{{ restore_galaxy_pvc_uuid }}
+        Physical Path: /mnt/block_storage/pvc-{{ restore_galaxy_pvc_uuid }}
+
+- name: Create static PersistentVolume for restored Galaxy data
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata:
+        name: "pvc-{{ restore_galaxy_pvc_uuid }}"
+        labels:
+          name: "pvc-{{ restore_galaxy_pvc_uuid }}"
+        annotations:
+          # NFS Ganesha export configuration
+          # Using Export_Id 100 to avoid conflicts with dynamic exports
+          EXPORT_block: |
+
+            EXPORT
+            {
+              Export_Id = 100;
+              Path = /export/pvc-{{ restore_galaxy_pvc_uuid }};
+              Pseudo = /export/pvc-{{ restore_galaxy_pvc_uuid }};
+              Access_Type = RW;
+              Squash = no_root_squash;
+              SecType = sys;
+              Filesystem_id = 100.100;
+              FSAL {
+                Name = VFS;
+              }
+            }
+
+          Export_Id: "100"
+          Project_Id: "0"
+          Project_block: ""
+      spec:
+        capacity:
+          storage: "{{ galaxy_persistence_size }}"
+        volumeMode: Filesystem
+        accessModes:
+          - ReadWriteMany
+        persistentVolumeReclaimPolicy: Retain
+        storageClassName: ""  # Empty string for static binding
+        mountOptions:
+          - nfsvers=4.2
+          - retrans=2
+          - timeo=30
+          - lock
+          - hard
+        nfs:
+          server: "{{ nfs_server_ip }}"
+          path: "/export/pvc-{{ restore_galaxy_pvc_uuid }}"
+        claimRef:
+          namespace: galaxy
+          name: "galaxy-galaxy-pvc"
+
+- name: Create static PersistentVolumeClaim for restored Galaxy data
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: "galaxy-galaxy-pvc"
+        namespace: galaxy
+        labels:
+          app.kubernetes.io/managed-by: "Helm"
+        annotations:
+          meta.helm.sh/release-name: "galaxy"
+          meta.helm.sh/release-namespace: "galaxy"
+      spec:
+        accessModes:
+          - ReadWriteMany
+        resources:
+          requests:
+            storage: "{{ galaxy_persistence_size }}"
+        storageClassName: "nfs"  # Match Galaxy chart default to avoid Helm patching
+        volumeName: "pvc-{{ restore_galaxy_pvc_uuid }}"  # Bind to specific PV
+
+- name: Wait for Galaxy PVC to bind
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "galaxy-galaxy-pvc"
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: restored_pvc
+  until: restored_pvc.resources[0].status.phase == "Bound"
+  retries: 30
+  delay: 2

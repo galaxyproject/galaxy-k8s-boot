@@ -38,7 +38,6 @@ galaxy_k8s_deployment/
 ## Requirements
 
 - Ansible >= 2.10
-- Ubuntu 24.04
 - Python 3
 - Kubernetes collection: `kubernetes.core`
 - Community collections: `community.general`, `ansible.posix`
@@ -92,11 +91,32 @@ rke2_debug: false                          # Enable debug mode
 
 ```yaml
 nfs_version: "1.8.0"                       # Ganesha NFS chart version
-nfs_persistence_storage_class: blockstorage
-nfs_size: "25Gi"                           # NFS backing storage size
+nfs_size: "139Gi"                          # NFS backing storage size
 nfs_default: false                         # Set as default storage class
 nfs_allow_expansion: true
-nfs_reclaim: Delete
+nfs_reclaim: Retain
+```
+
+### Kubernetes Storage Configuration
+
+```yaml
+cluster_hostname: galaxy                   # Cluster hostname
+cinder_csi_version: "2.31.2"               # Cinder CSI version (if used)
+block_storage_disk_path: /mnt/block_storage # Local path to NFS backing disk
+postgres_storage_disk_path: /mnt/postgres_storage # Local path to PSQL backing disk
+setup_postgres_storage: true               # Setup local-path storage for PostgreSQL
+```
+
+### CNPG and Restoration Configuration
+
+```yaml
+setup_cert_manager: false                  # Required for CNPG skip-initdb plugin
+cert_manager_version: "v1.20.0"            # cert-manager chart version
+cnpg_skip_initdb_enabled: true             # Enable PostgreSQL existing data reuse
+cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
+cnpg_skip_initdb_namespace: "galaxy-deps"  # Must match CNPG operator namespace
+cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
+restore_galaxy: false                      # Detect and restore existing Galaxy data
 ```
 
 ### Ingress Configuration
@@ -109,16 +129,61 @@ ingress_version: "4.13.2"                  # NGINX ingress chart version
 
 ```yaml
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.5.0"              # Galaxy chart version
+galaxy_chart_version: "6.8.0"              # Galaxy chart version
 galaxy_deps_version: "1.1.1"               # Galaxy dependencies version
-galaxy_values_file: "values/values.yml"    # Path to Galaxy values file
-galaxy_persistence_size: "20Gi"            # Galaxy data volume size
+galaxy_values_files: ["values/values.yml"] # Path to Galaxy values files
+galaxy_persistence_size: "128Gi"           # Galaxy data volume size
 galaxy_db_password: "galaxydbpassword"     # PostgreSQL password
-galaxy_user: "admin@galaxy.org"            # Galaxy admin user
-galaxy_api_key: ""                         # Galaxy API key
+galaxy_user: "default-user@galaxyproject.org" # Galaxy admin user
+galaxy_bootstrap_api_key: ""               # Galaxy bootstrap API key
+galaxy_import_profile:                     # Helm values files for postInstall imports
+  - "files/profiles/anvil.yaml"            # Set to [] to disable post-install imports
 galaxy_job_max_cores: 1                    # Max CPU cores per job
 galaxy_job_max_mem: 4                      # Max memory per job (GB)
 ```
+
+### Automatic Data Import
+
+`galaxy_import_profile` is a list of Helm values files merged into the Galaxy
+chart deployment to configure the [postInstall job][abm-docs]. By default the
+bundled AnVIL profile (`files/profiles/anvil.yaml`) is used, which enables the
+postInstall job and imports sample RNA-seq datasets and a workflow after
+deployment. Set `galaxy_import_profile: []` to skip post-install imports
+entirely.
+
+**Requirements**: Galaxy Helm chart 6.8.0+, ABM 2.12.0+.
+
+To define custom imports, create a Helm values file with a `postInstallJob`
+block and reference it via `galaxy_import_profile`:
+
+```yaml
+galaxy_import_profile:
+  - "values/my-imports.yaml"
+```
+
+```yaml
+# values/my-imports.yaml
+postInstallJob:
+  enabled: true
+  bootstrapConfig: |
+    datasets:
+      "Tutorial Data":
+        - "https://zenodo.org/records/13987631/files/SRR5085167_forward.fastqsanger.gz"
+        - "https://zenodo.org/records/13987631/files/SRR5085167_reverse.fastqsanger.gz"
+        - "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"
+    workflows:
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/refs/heads/main/workflows/transcriptomics/rnaseq-pe/rnaseq-pe.ga"
+```
+
+The `bootstrapConfig` format supports:
+- **datasets**: Import files into named histories
+- **workflows**: Import `.ga` workflow files
+- **histories**: Import exported Galaxy history archives
+- **workflows-no-tools**: Import workflows without installing tools
+
+See the [ABM documentation][abm-docs] for the complete configuration format.
+
+[abm-docs]: https://github.com/galaxyproject/gxabm
 
 ### Pulsar Application Configuration
 
@@ -127,6 +192,14 @@ pulsar_chart: cloudve/pulsar
 pulsar_chart_version: "0.2.0"              # Pulsar chart version
 pulsar_deps_version: "1.1.1"               # Pulsar dependencies version
 pulsar_api_key: ""                         # Pulsar API key
+```
+
+### GCP Batch Configuration
+
+```yaml
+enable_gcp_batch: true                     # Auto-configure Galaxy for GCP Batch runner
+gcp_batch_service_account_email: ""        # Service account email for Batch
+gcp_batch_region: "us-east4"               # Region for GCP Batch
 ```
 
 ## Dependencies
@@ -142,7 +215,7 @@ This role has optional dependencies:
 ```yaml
 ---
 - name: Deploy Galaxy on Kubernetes
-  hosts: vm
+  hosts: vms
   gather_facts: true
   become: true
   roles:
@@ -155,8 +228,8 @@ This role has optional dependencies:
         setup_ingress: true
         deploy_galaxy: true
         rke2_token: "my-secure-token"
-        galaxy_values_file: "values/my-galaxy-config.yml"
-        galaxy_api_key: "my-api-key"
+        galaxy_values_files: ["values/my-galaxy-config.yml"]
+        galaxy_bootstrap_api_key: "my-api-key"
 ```
 
 ### Deployment on Bare Ubuntu VMs
@@ -166,7 +239,7 @@ For fresh Ubuntu installations requiring full setup:
 ```yaml
 ---
 - name: Deploy Galaxy on bare Ubuntu VM
-  hosts: vm
+  hosts: vms
   gather_facts: true
   become: true
   roles:
@@ -179,8 +252,8 @@ For fresh Ubuntu installations requiring full setup:
         setup_ingress: true
         deploy_galaxy: true
         rke2_token: "my-secure-token"
-        galaxy_values_file: "values/my-galaxy-config.yml"
-        galaxy_api_key: "my-api-key"
+        galaxy_values_files: ["values/my-galaxy-config.yml"]
+        galaxy_bootstrap_api_key: "my-api-key"
 ```
 
 ### Pulsar Deployment
@@ -188,7 +261,7 @@ For fresh Ubuntu installations requiring full setup:
 ```yaml
 ---
 - name: Deploy Pulsar for distributed job execution
-  hosts: vm
+  hosts: vms
   gather_facts: true
   become: true
   roles:
@@ -248,4 +321,4 @@ If storage provisioning fails:
 If Galaxy fails to deploy:
 1. Check namespace: `kubectl get pods -n galaxy`
 2. Review helm release: `helm list -n galaxy`
-3. Check values file: Ensure `galaxy_values_file` path is correct
+3. Check values files: Ensure `galaxy_values_files` paths are correct

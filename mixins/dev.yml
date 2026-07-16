@@ -1,0 +1,4 @@
+# The latest development build
+image:
+  repository: quay.io/galaxyproject/galaxy-min
+  tag: "dev"

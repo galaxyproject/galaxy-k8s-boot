@@ -1,10 +1,10 @@
 # This inventory file is automatically generated for single-node RKE2 deployment.
 #
-# Host Group: vm
+# Host Group: vms
 #   - Optimized for pre-prepared images with RKE2 prerequisites and Helm
-#   - For bare Ubuntu VMs, add: -e "setup_system=true" to the ansible-playbook command
+#   - For bare VMs, add: -e "setup_system=true" to the ansible-playbook command
 
-[vm]
+[vms]
 {{ name }} ansible_ssh_host={{ ip }}
 
 [all:vars]

@@ -1,13 +1,16 @@
 ---
 # Default variables for image preparation role
-rke2_version: v1.34.1+rke2r1  # https://github.com/rancher/rke2/tags
-helm_version: v3.19.0  # https://github.com/helm/helm/tags
+rke2_version: v1.36.2+rke2r1  # https://github.com/rancher/rke2/tags
+helm_version: v4.2.2          # https://github.com/helm/helm/tags
 
-# System packages to install (Ubuntu focused)
+# Default user (Ubuntu uses 'ubuntu', Debian uses 'debian' on GCP)
+default_user: "{{ 'ubuntu' if ansible_facts['distribution'] | default('Debian') == 'Ubuntu' else 'debian' }}"
+
+# System packages to install (works on both Ubuntu and Debian)
 base_packages:
   - python3
   - python3-pip
-  - python3-openshift
+  - cloud-init
   - nfs-common
   - curl
   - wget

@@ -1,10 +1,16 @@
+.DS_Store
 .idea/
 .venv/
 .vscode/
 .prettierignore
+.gemini/
+.claude/
+.ignored
 k3s/outputs/
 ansible.cfg
 sa-key.json
 kubeconfig.yaml
 image_prep.ini
 vm.ini
+ea-no-commit/
+conductor/

@@ -24,14 +24,35 @@
     # Repos to test explicitly
     cvmfs_verify_repos:
       - data.galaxyproject.org
+      - cloud.galaxyproject.org
 
   pre_tasks:
     - name: Display target host information
       ansible.builtin.debug:
         msg: |
           Preparing image for host: {{ inventory_hostname }}
-          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
-          Architecture: {{ ansible_architecture }}
+          OS: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
+          Architecture: {{ ansible_facts['architecture'] }}
+
+    - name: Wait for background apt/dpkg locks to be released and stop unattended-upgrades
+      ansible.builtin.shell: |
+        # Temporarily stop unattended-upgrades so it does not trigger again
+        systemctl stop unattended-upgrades || true
+        systemctl disable unattended-upgrades || true
+        
+        # Wait for any active lock to release
+        for i in $(seq 1 120); do
+          if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; then
+            echo "Apt locks are clear!"
+            exit 0
+          fi
+          echo "Apt/dpkg lock is currently held by another process. Waiting..."
+          sleep 5
+        done
+        echo "Timed out waiting for apt lock!"
+        exit 1
+      changed_when: false
+      failed_when: false # Ignore if fuser is missing, apt will try to run anyway
 
     - name: Update system packages
       ansible.builtin.apt:
@@ -68,6 +89,20 @@
       changed_when: true
       when: install_rke2_prerequisites | bool
 
+    # galaxyproject.cvmfs 0.5.0 only downloads the CERN GPG key for Ubuntu
+    # (jammy/noble). On Debian the repo config still references the same path,
+    # so we pre-seed it here. This workaround can be removed once upstream
+    # fixes the conditional in init_debian.yml.
+    - name: Download CernVM GPG key for Debian
+      ansible.builtin.get_url:
+        url: https://cvmrepo.web.cern.ch/cvmrepo/apt/cernvm.gpg
+        dest: /usr/share/keyrings/cernvm.gpg
+        mode: '0644'
+      become: true
+      when:
+        - install_cvmfs | bool
+        - ansible_facts['distribution'] == 'Debian'
+
   roles:
     - role: galaxyproject.cvmfs
       when: install_cvmfs | bool
@@ -75,6 +110,44 @@
     - role: image_preparation
 
   post_tasks:
+    # galaxyproject.cvmfs 0.5.0 uses `cvmfs_config_repo | bool` to guard this
+    # setup, which ansible-core now treats as false for dict values.
+    - name: Ensure Galaxy CVMFS config repository is configured
+      when:
+        - install_cvmfs | bool
+        - galaxy_cvmfs_repos_enabled == 'config-repo'
+      block:
+        - name: Create Galaxy CVMFS config repo config
+          ansible.builtin.copy:
+            content: |
+              ## This file is maintained by Ansible - CHANGES WILL BE OVERWRITTEN
+              CVMFS_SERVER_URL="{{ galaxy_cvmfs_config_repo.urls | join(';') }}"
+              CVMFS_PUBLIC_KEY="{{ galaxy_cvmfs_config_repo.key.path }}"
+            dest: /etc/cvmfs/config.d/{{ galaxy_cvmfs_config_repo.repository.repository }}.conf
+            owner: root
+            group: root
+            mode: "0444"
+          register: galaxy_cvmfs_config_repo_conf
+
+        - name: Set Galaxy CVMFS config repo defaults
+          ansible.builtin.copy:
+            content: |
+              ## This file is maintained by Ansible - CHANGES WILL BE OVERWRITTEN
+              CVMFS_CONFIG_REPOSITORY="{{ galaxy_cvmfs_config_repo.repository.repository }}"
+              CVMFS_DEFAULT_DOMAIN="{{ galaxy_cvmfs_config_repo.domain }}"
+              CVMFS_USE_GEOAPI="{{ galaxy_cvmfs_config_repo.use_geoapi | default(false) | ternary('yes', 'no') }}"
+            dest: /etc/cvmfs/default.d/80-ansible-galaxyproject-cvmfs.conf
+            owner: root
+            group: root
+            mode: "0444"
+          register: galaxy_cvmfs_config_repo_defaults
+
+        - name: Restart autofs after Galaxy CVMFS config repo changes
+          ansible.builtin.service:
+            name: autofs
+            state: restarted
+          when: galaxy_cvmfs_config_repo_conf.changed or galaxy_cvmfs_config_repo_defaults.changed
+
     - name: Verify CVMFS client installed
       ansible.builtin.command: which cvmfs_config
       register: cvmfs_config_check
