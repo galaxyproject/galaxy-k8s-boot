@@ -1,0 +1,2 @@
+postInstallJob:
+  enabled: false
