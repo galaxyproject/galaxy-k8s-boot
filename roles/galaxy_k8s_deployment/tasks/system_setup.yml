@@ -27,10 +27,11 @@
     - /usr/local/bin
   become: true
 
-- name: Check if RKE2 is already installed
-  ansible.builtin.stat:
-    path: /usr/local/bin/rke2
-  register: rke2_binary
+- name: Check RKE2 version
+  ansible.builtin.command: rke2 --version
+  register: rke2_installed_version
+  failed_when: false
+  changed_when: false
 
 - name: Download RKE2 installation script
   ansible.builtin.get_url:
@@ -38,15 +39,15 @@
     dest: /tmp/install-rke2.sh
     mode: '0755'
     timeout: 30
-  when: not rke2_binary.stat.exists
+  when: rke2_installed_version.rc != 0 or rke2_version not in rke2_installed_version.stdout
   become: true
 
-- name: Install RKE2 binaries
+- name: Install/Upgrade RKE2 binaries
   ansible.builtin.shell: |
     INSTALL_RKE2_VERSION="{{ rke2_version }}" \
     INSTALL_RKE2_TYPE=server \
     /tmp/install-rke2.sh
-  when: not rke2_binary.stat.exists
+  when: rke2_installed_version.rc != 0 or rke2_version not in rke2_installed_version.stdout
   become: true
 
 - name: Create kubectl symlink
@@ -63,17 +64,24 @@
     state: absent
   become: true
 
+- name: Check Helm version
+  ansible.builtin.command: helm version --template '{{ '{{' }} .Version {{ '}}' }}'
+  register: helm_installed_version
+  failed_when: false
+  changed_when: false
+
 - name: Download Helm installation script
   ansible.builtin.get_url:
-    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    url: "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-{{ helm_version | regex_replace('^v?([0-9]+).*', '\\1') }}"
     dest: /tmp/get_helm.sh
     mode: "0755"
+  when: helm_installed_version.rc != 0 or helm_version not in helm_installed_version.stdout
   become: true
 
-- name: Install Helm
+- name: Install/Upgrade Helm
   ansible.builtin.shell:
     cmd: /tmp/get_helm.sh --version {{ helm_version }}
-    creates: /usr/local/bin/helm
+  when: helm_installed_version.rc != 0 or helm_version not in helm_installed_version.stdout
   become: true
   environment:
     DESIRED_VERSION: "{{ helm_version }}"

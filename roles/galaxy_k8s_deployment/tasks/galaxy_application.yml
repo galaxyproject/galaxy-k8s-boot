@@ -180,7 +180,7 @@
 
 - name: Get node internal IP for NFS access
   set_fact:
-    nfs_server: "{{ ansible_default_ipv4.address }}"
+    nfs_server: "{{ ansible_facts['default_ipv4']['address'] }}"
   when: enable_gcp_batch | default(false) | bool
 
 - name: Verify NFS service exists
@@ -269,14 +269,22 @@
   loop_control:
     index_var: idx
 
+- name: Copy packaged local Galaxy chart to the remote host
+  ansible.builtin.copy:
+    src: "galaxy-{{ galaxy_chart_version }}.tgz"
+    dest: "/tmp/galaxy-chart.tgz"
+    mode: '0644'
+  when: use_local_chart | default(false) | bool
+
 - name: Helm install Galaxy
   kubernetes.core.helm:
     name: galaxy
     namespace: galaxy
-    chart_ref: "{{ galaxy_chart }}"
-    chart_version: "{{ galaxy_chart_version }}"
+    chart_ref: "{{ '/tmp/galaxy-chart.tgz' if (use_local_chart | default(false) | bool) else galaxy_chart }}"
+    chart_version: "{{ omit if (use_local_chart | default(false) | bool) else galaxy_chart_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
-    update_repo_cache: true
+    update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
+    timeout: "20m0s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
     values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
@@ -392,6 +400,8 @@
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   loop:
+    - galaxy-web
+    - galaxy-job-0
     - galaxy-workflow
   when:
     - enable_gcp_batch | default(false) | bool
