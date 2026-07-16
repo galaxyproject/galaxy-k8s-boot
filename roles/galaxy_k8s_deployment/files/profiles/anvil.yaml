@@ -2,6 +2,7 @@ postInstallJob:
   enabled: true
   galaxyUser: "default-user@galaxyproject.org"
   bootstrapConfig: |
+    version: 1
     datasets:
       "Imported Datasets":
         - "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"

@@ -29,6 +29,8 @@ DRY_RUN=""
 POSTGRES_DISK_NAME=""
 EPHEMERAL_ONLY=false
 GALAXY_VALUES_FILES=()  # Array to hold multiple values files
+GALAXY_IMPORT_PROFILES=()  # Array to hold post-install import profile values files
+PROFILE_OVERRIDE=false  # Set true when --profile is supplied (overrides galaxy_import_profile)
 INSTANCE_NAME=""
 SSH_KEY=""
 
@@ -61,6 +63,9 @@ Options:
   --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
   --postgres-disk DISK_NAME         Name of PostgreSQL disk (default: galaxy-postgres-INSTANCE_NAME)
   --postgres-disk-size SIZE         Size of PostgreSQL disk (default: $POSTGRES_DISK_SIZE)
+  --profile FILE                    Post-install import profile values file, overriding the
+                                    galaxy_import_profile role default (can be specified multiple
+                                    times). Use --profile '' to disable post-install imports.
   --restore-galaxy                  Auto-detect and restore Galaxy from existing data
   -h, --help, help                  Show this help message
 
@@ -89,6 +94,13 @@ Examples:
   # Launch VM with multiple Helm values files (order matters - later files override earlier ones)
   $0 -k "ssh-rsa AAAAB3..." -f values/values.yml -f mixins/v26.1.yml my-galaxy-vm
   $0 -k "ssh-rsa AAAAB3..." --values values/values.yml --values mixins/multiuser.yml --values mixins/admins.yml my-galaxy-vm
+
+  # Launch VM with a custom post-install import profile (overrides the default anvil profile)
+  $0 -k "ssh-rsa AAAAB3..." --profile mixins/postinstall.yml my-galaxy-vm
+
+  # Launch VM with post-install imports disabled
+  $0 -k "ssh-rsa AAAAB3..." --profile '' my-galaxy-vm
+
   # Launch VM with custom git repository and branch
   $0 -k "ssh-rsa AAAAB3..." -g "https://github.com/username/galaxy-k8s-boot.git" -b "feature-branch" my-galaxy-vm
 
@@ -123,6 +135,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -i|--machine-image)
             MACHINE_IMAGE="$2"
+            shift 2
+            ;;
+        --profile)
+            # Override galaxy_import_profile. An empty value disables imports ([]).
+            PROFILE_OVERRIDE=true
+            if [ -n "$2" ]; then
+                GALAXY_IMPORT_PROFILES+=("$2")
+            fi
             shift 2
             ;;
         --postgres-disk)
@@ -324,6 +344,19 @@ fi
 # Convert values files list to JSON array
 GALAXY_VALUES_FILES_JSON=$(echo "$GALAXY_VALUES_FILES_LIST" | sed -e 's/;/","/g' -e 's/^/["/' -e 's/$/"]/')
 
+# Build the galaxy_import_profile JSON array only when --profile was supplied.
+# An empty array ([]) disables post-install imports; if --profile is not used the
+# variable stays empty and the role's galaxy_import_profile default is left intact.
+GALAXY_IMPORT_PROFILE_JSON=""
+if [ "$PROFILE_OVERRIDE" = true ]; then
+    if [ ${#GALAXY_IMPORT_PROFILES[@]} -eq 0 ]; then
+        GALAXY_IMPORT_PROFILE_JSON="[]"
+    else
+        GALAXY_IMPORT_PROFILE_LIST=$(IFS=';'; echo "${GALAXY_IMPORT_PROFILES[*]}")
+        GALAXY_IMPORT_PROFILE_JSON=$(echo "$GALAXY_IMPORT_PROFILE_LIST" | sed -e 's/;/","/g' -e 's/^/["/' -e 's/$/"]/')
+    fi
+fi
+
 cat > "$TEMP_USER_DATA" << 'EOF'
 #cloud-config
 runcmd:
@@ -411,6 +444,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_CHART_VERSION="${GALAXY_CHART_VERSION}"
     GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
+    GALAXY_IMPORT_PROFILE_JSON='${GALAXY_IMPORT_PROFILE_JSON}'
     RESTORE_GALAXY="${RESTORE_GALAXY}"
 EOF
 
@@ -441,9 +475,17 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     echo "[`date`] - Galaxy Chart Version: ${GALAXY_CHART_VERSION}"
     echo "[`date`] - Galaxy Deps Version: ${GALAXY_DEPS_VERSION}"
     echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_JSON}"
+    echo "[`date`] - Galaxy Import Profile: ${GALAXY_IMPORT_PROFILE_JSON:-(role default)}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
-    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/PLACEHOLDER_VM_USER/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "{\"enable_gcp_batch\": true, \"galaxy_chart\": \"${GALAXY_CHART}\", \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_chart\": \"${GALAXY_DEPS_CHART}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}}" playbook.yml
+    # Build the ansible-pull extra-vars, only overriding galaxy_import_profile when --profile was used.
+    EXTRA_VARS="{\"enable_gcp_batch\": true, \"galaxy_chart\": \"${GALAXY_CHART}\", \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_chart\": \"${GALAXY_DEPS_CHART}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}"
+    if [ -n "${GALAXY_IMPORT_PROFILE_JSON}" ]; then
+        EXTRA_VARS="${EXTRA_VARS}, \"galaxy_import_profile\": ${GALAXY_IMPORT_PROFILE_JSON}"
+    fi
+    EXTRA_VARS="${EXTRA_VARS}}"
+
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks ANSIBLE_HOST_PATTERN_MISMATCH=ignore ansible-pull -U ${GIT_REPO} -C ${GIT_BRANCH} -d /home/PLACEHOLDER_VM_USER/ansible -i /tmp/ansible-inventory/localhost --accept-host-key --limit 127.0.0.1 --extra-vars "${EXTRA_VARS}" playbook.yml
 
     echo "[`date`] - User data script completed."
     '
