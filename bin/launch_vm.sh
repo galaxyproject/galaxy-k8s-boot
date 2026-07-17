@@ -16,7 +16,7 @@ GALAXY_DEPS_CHART="cloudve/galaxy-deps"
 GALAXY_DEPS_VERSION="1.1.1"
 GIT_BRANCH="master"
 GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
-MACHINE_IMAGE="galaxy-k8s-boot-debian12-v2026-02-24"
+MACHINE_IMAGE="galaxy-k8s-boot-v2026-06-30"
 MACHINE_TYPE="e2-standard-4"
 PROJECT="anvil-and-terra-development"
 VM_USER="debian"
@@ -74,7 +74,7 @@ Examples:
   $0 -k "ssh-rsa AAAAB3..." my-galaxy-vm
 
   # Launch VM with specific machine image
-  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2026-02-25 my-galaxy-vm
+  $0 -k "ssh-rsa AAAAB3..." -i galaxy-k8s-boot-v2026-06-30 my-galaxy-vm
 
   # Launch VM with specific disk names
   $0 -k "ssh-rsa AAAAB3..." -d galaxy-shared-disk --postgres-disk galaxy-postgres-disk my-galaxy-vm

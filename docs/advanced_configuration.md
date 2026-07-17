@@ -2,11 +2,13 @@
 
 ## Managing the Kubernetes cluster
 
-If you would like to manage the Kubernetes cluster, you can use the `kubectl` command on the server, or download the `kubeconfig` file from the server and use it on your local machine.
+If you would like to manage the Kubernetes cluster, you can use the `kubectl` command on the server, or download the `kubeconfig` file from the server and use it on your local machine. The playbook copies the RKE2 kubeconfig to the VM user's home directory (default user `debian`).
 
 ```bash
-scp -i my-key.pem ubuntu@<server-ip>:/home/ubuntu/.kube/config ~/.kube/config
+scp -i my-key.pem debian@<server-ip>:/home/debian/.kube/config ~/.kube/config
 ```
+
+The kubeconfig points at `127.0.0.1`, so update the `server:` address to the VM's IP after downloading it.
 
 ## Using Multiple Helm Values Files
 
@@ -72,7 +74,7 @@ configs:
   job_conf.yml:
     runners:
       gcp_batch:
-        load: galaxy.jobs.runners.gcp_batch:GCPBatchJobRunner
+        load: galaxy.jobs.runners.gcp_batch:GoogleCloudBatchJobRunner
 ```
 
 Then deploy with:
