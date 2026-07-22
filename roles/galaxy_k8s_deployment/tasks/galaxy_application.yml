@@ -401,14 +401,61 @@
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
 
+# job_conf.yml is mounted with subPath, and Kubernetes never propagates ConfigMap
+# updates into subPath mounts. Every deployment that mounts it keeps the config it
+# started with until it is restarted -- if the job handler is missed, the gcp_batch
+# runner sees no gcp_batch_volumes and silently falls back to an NFS server of
+# 127.0.0.1, so every Batch job dies with "mount.nfs4: Connection refused".
+# Discover the deployments dynamically so the list cannot silently drift out of
+# date as the chart adds handlers.
+- name: Find Galaxy deployments that mount job_conf.yml
+  shell: |
+    kubectl get deployment -n galaxy -o name \
+      | sed 's|^deployment.apps/||' \
+      | grep -E '^galaxy-(web|workflow|celery|celery-beat|job-[0-9]+)$' || true
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: job_conf_deployments
+  changed_when: false
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
 - name: Restart Galaxy deployments to pick up configuration changes
   shell: kubectl rollout restart deployment {{ item }} -n galaxy
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
-  loop:
-    - galaxy-web
-    - galaxy-job-0
-    - galaxy-workflow
+  loop: "{{ job_conf_deployments.stdout_lines | default([]) }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+- name: Wait for restarted deployments to finish rolling out
+  shell: kubectl rollout status deployment {{ item }} -n galaxy --timeout=600s
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  loop: "{{ job_conf_deployments.stdout_lines | default([]) }}"
+  changed_when: false
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+# Fail loudly rather than leaving a cluster that looks healthy but errors every
+# Batch job. The handler is the deployment that actually dispatches to GCP Batch.
+- name: Verify the job handler picked up gcp_batch_volumes
+  shell: |
+    set -o pipefail
+    pod=$(kubectl get pod -n galaxy -o name \
+      | sed 's|^pod/||' | grep -m1 '^galaxy-job-0-')
+    kubectl exec -n galaxy "$pod" -c galaxy-job-0 -- \
+      grep -q 'gcp_batch_volumes' /galaxy/server/config/job_conf.yml
+  args:
+    executable: /bin/bash
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: gcp_batch_volumes_check
+  changed_when: false
+  failed_when: gcp_batch_volumes_check.rc != 0
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
