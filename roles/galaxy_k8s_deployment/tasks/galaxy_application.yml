@@ -431,7 +431,8 @@
     - nfs_export_path is defined
 
 - name: Wait for restarted deployments to finish rolling out
-  shell: kubectl rollout status deployment {{ item }} -n galaxy --timeout=600s
+  # Allow 30 minutes for long running postInstallJobs
+  shell: kubectl rollout status deployment {{ item }} -n galaxy --timeout=1800s
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
   loop: "{{ job_conf_deployments.stdout_lines | default([]) }}"
