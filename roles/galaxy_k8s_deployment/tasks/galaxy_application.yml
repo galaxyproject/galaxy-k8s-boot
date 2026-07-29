@@ -402,44 +402,33 @@
     - nfs_export_path is defined
 
 # job_conf.yml is mounted with subPath, and Kubernetes never propagates ConfigMap
-# updates into subPath mounts. Every deployment that mounts it keeps the config it
-# started with until it is restarted -- if the job handler is missed, the gcp_batch
-# runner sees no gcp_batch_volumes and silently falls back to an NFS server of
-# 127.0.0.1, so every Batch job dies with "mount.nfs4: Connection refused".
-# Discover the deployments dynamically so the list cannot silently drift out of
-# date as the chart adds handlers.
-- name: Find Galaxy deployments that mount job_conf.yml
-  shell: |
-    kubectl get deployment -n galaxy -o name \
-      | sed 's|^deployment.apps/||' \
-      | grep -E '^galaxy-(web|workflow|celery|celery-beat|job-[0-9]+)$' || true
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  register: job_conf_deployments
-  changed_when: false
+# updates into subPath mounts; every deployment that mounts it keeps the config it
+# started with until it is restarted.
+# The deployments to restart are listed explicitly in galaxy_job_conf_deployments below;
+# update that list if the chart adds/renames handlers.
+- name: Restart Galaxy deployments and wait for them to pick up configuration changes
+  vars:
+    galaxy_job_conf_deployments:
+      - galaxy-web
+      - galaxy-workflow
+      - galaxy-job-0
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
+  block:
+    - name: Restart Galaxy deployments to pick up configuration changes
+      shell: kubectl rollout restart deployment {{ item }} -n galaxy
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      loop: "{{ galaxy_job_conf_deployments }}"
 
-- name: Restart Galaxy deployments to pick up configuration changes
-  shell: kubectl rollout restart deployment {{ item }} -n galaxy
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  loop: "{{ job_conf_deployments.stdout_lines | default([]) }}"
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_export_path is defined
-
-- name: Wait for restarted deployments to finish rolling out
-  # Allow 30 minutes for long running postInstallJobs
-  shell: kubectl rollout status deployment {{ item }} -n galaxy --timeout=1800s
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  loop: "{{ job_conf_deployments.stdout_lines | default([]) }}"
-  changed_when: false
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_export_path is defined
+    - name: Wait for restarted deployments to finish rolling out
+      # Allow 30 minutes for long running postInstallJobs
+      shell: kubectl rollout status deployment {{ item }} -n galaxy --timeout=1800s
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      loop: "{{ galaxy_job_conf_deployments }}"
+      changed_when: false
 
 # Fail loudly rather than leaving a cluster that looks healthy but errors every
 # Batch job. The handler is the deployment that actually dispatches to GCP Batch.
