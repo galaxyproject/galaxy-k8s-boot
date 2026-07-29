@@ -404,18 +404,43 @@
 # job_conf.yml is mounted with subPath, and Kubernetes never propagates ConfigMap
 # updates into subPath mounts; every deployment that mounts it keeps the config it
 # started with until it is restarted.
-# The deployments to restart are listed explicitly in galaxy_job_conf_deployments below;
-# update that list if the chart adds/renames handlers.
+# The deployments to restart are listed explicitly in galaxy_job_conf_deployments
+# below; update that list if the chart adds or renames handlers. The guard task
+# fails the play when a job handler exists in the cluster but is missing from the
+# list, so an omission cannot silently leave a handler running on stale config.
 - name: Restart Galaxy deployments and wait for them to pick up configuration changes
   vars:
     galaxy_job_conf_deployments:
       - galaxy-web
       - galaxy-workflow
       - galaxy-job-0
+    galaxy_job_handler_pattern: '^galaxy-job-[0-9]+$'
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
   block:
+    - name: List Galaxy deployments
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: galaxy_deployments
+
+    - name: Fail if a job handler is missing from the restart list
+      vars:
+        cluster_job_handlers: >-
+          {{ galaxy_deployments.resources | map(attribute='metadata.name')
+             | select('match', galaxy_job_handler_pattern) | list }}
+      fail:
+        msg: >-
+          Job handler(s)
+          {{ cluster_job_handlers | difference(galaxy_job_conf_deployments) | join(', ') }}
+          exist in the galaxy namespace but are missing from
+          galaxy_job_conf_deployments. They would keep a stale job_conf.yml and every
+          GCP Batch job they dispatch would fail. Add them to the list in this file.
+      when: cluster_job_handlers | difference(galaxy_job_conf_deployments) | length > 0
+
     - name: Restart Galaxy deployments to pick up configuration changes
       shell: kubectl rollout restart deployment {{ item }} -n galaxy
       environment:
@@ -423,29 +448,24 @@
       loop: "{{ galaxy_job_conf_deployments }}"
 
     - name: Wait for restarted deployments to finish rolling out
-      # Allow 30 minutes for long running postInstallJobs
+      # 30 minutes per deployment; first-boot rollouts are slow while Galaxy builds
+      # the tool panel and the CVMFS caches warm up.
       shell: kubectl rollout status deployment {{ item }} -n galaxy --timeout=1800s
       environment:
         KUBECONFIG: "{{ kubeconfig_path }}"
       loop: "{{ galaxy_job_conf_deployments }}"
       changed_when: false
 
-# Fail loudly rather than leaving a cluster that looks healthy but errors every
-# Batch job. The handler is the deployment that actually dispatches to GCP Batch.
-- name: Verify the job handler picked up gcp_batch_volumes
-  shell: |
-    set -o pipefail
-    pod=$(kubectl get pod -n galaxy -o name \
-      | sed 's|^pod/||' | grep -m1 '^galaxy-job-0-')
-    kubectl exec -n galaxy "$pod" -c galaxy-job-0 -- \
-      grep -q 'gcp_batch_volumes' /galaxy/server/config/job_conf.yml
-  args:
-    executable: /bin/bash
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  register: gcp_batch_volumes_check
-  changed_when: false
-  failed_when: gcp_batch_volumes_check.rc != 0
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - nfs_export_path is defined
+    # Fail loudly rather than leaving a cluster that looks healthy but errors every
+    # Batch job. Addressing deployment/<name> lets kubectl pick a pod from the
+    # current ReplicaSet; matching on pod name could select one still terminating
+    # from the previous ReplicaSet and read its pre-restart config.
+    - name: Verify job handlers picked up gcp_batch_volumes
+      shell: >
+        kubectl exec -n galaxy deployment/{{ item }} -c {{ item }} --
+        grep -q '{{ nfs_server }}:{{ nfs_export_path }}:/galaxy/server/database'
+        /galaxy/server/config/job_conf.yml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      loop: "{{ galaxy_job_conf_deployments | select('match', galaxy_job_handler_pattern) | list }}"
+      changed_when: false
