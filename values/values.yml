@@ -64,6 +64,8 @@ configs:
         workers: 4
         # Basic GCP settings
         project_id: anvil-and-terra-development
+        # Overridden by the region derived from the VM's zone, or by an explicit
+        # gcp_batch_region, when enable_gcp_batch is set
         region: us-east4
         service_account_email: galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com
 

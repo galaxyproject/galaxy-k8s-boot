@@ -283,32 +283,56 @@
   when: use_local_chart | default(false) | bool
 
 # Derive the GCP Batch region from the VM's own zone so Batch jobs run in-region
-# with the cluster's NFS server instead of the us-east4 default in values.yml. The
-# metadata server reports the true zone (e.g. projects/NUM/zones/us-central1-f)
-# regardless of how the VM was launched; strip the trailing "-<letter>" to get the
-# region. Falls back to the gcp_batch_region default (defaults/main.yml) on failure.
+# with the cluster's NFS server. The metadata server reports the true zone
+# (e.g. projects/NUM/zones/us-central1-f) regardless of how the VM was launched;
+# strip the trailing "-<letter>" to get the region. An explicitly set
+# gcp_batch_region always wins, and when neither is available the region in the
+# Helm values files is left untouched (see the _helm_values_gcp_batch merge below).
 - name: Detect GCP zone from the metadata server
   ansible.builtin.uri:
     url: http://metadata.google.internal/computeMetadata/v1/instance/zone
     headers:
       Metadata-Flavor: Google
     return_content: true
+    timeout: 5
   register: gcp_zone_meta
   failed_when: false
-  when: enable_gcp_batch | default(false) | bool
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_region | default('') | length == 0
 
 - name: Derive gcp_batch_region from the detected zone
   set_fact:
-    gcp_batch_region: "{{ gcp_zone_meta.content | regex_replace('.*/', '') | regex_replace('-[a-z]$', '') }}"
+    gcp_batch_region: "{{ _detected_region }}"
+    _gcp_batch_region_source: "zone {{ _detected_zone }} reported by the metadata server"
+  vars:
+    _detected_zone: "{{ gcp_zone_meta.content | default('') | trim | regex_replace('.*/', '') }}"
+    _detected_region: "{{ _detected_zone | regex_replace('-[a-z]$', '') }}"
   when:
     - enable_gcp_batch | default(false) | bool
+    - gcp_batch_region | default('') | length == 0
     - gcp_zone_meta.status | default(0) == 200
-    - gcp_zone_meta.content | default('') | length > 0
+    - _detected_region is match('^[a-z]+-[a-z]+[0-9]+$')
 
 - name: Display GCP Batch region in use
   debug:
-    msg: "GCP Batch region: {{ gcp_batch_region }} (from zone {{ gcp_zone_meta.content | default('n/a') | regex_replace('.*/', '') }})"
-  when: enable_gcp_batch | default(false) | bool
+    msg: "GCP Batch region: {{ gcp_batch_region }} (from {{ _gcp_batch_region_source | default('the gcp_batch_region variable', true) }})"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_region | default('') | length > 0
+
+- name: Warn that the GCP Batch region could not be determined
+  debug:
+    msg: >-
+      WARNING: could not derive the GCP Batch region from the metadata server
+      (HTTP status {{ gcp_zone_meta.status | default('n/a') }}, content
+      '{{ gcp_zone_meta.content | default('') | trim }}'). Batch jobs will use the
+      region set in the Helm values files, which breaks job I/O against the
+      cluster's NFS server if that region is not this VM's region. Set
+      gcp_batch_region explicitly to silence this warning.
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_region | default('') | length == 0
 
 - name: Helm install Galaxy
   kubernetes.core.helm:
@@ -320,7 +344,7 @@
     update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
     timeout: "20m0s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
   vars:
     _helm_prefix_sets:
@@ -342,9 +366,10 @@
               k8s:
                 max_cores: "{{ galaxy_job_max_cores }}"
                 max_mem: "{{ galaxy_job_max_mem }}"
-    # Override only the gcp_batch runner region (derived from the VM zone above);
-    # deep-merges over the runner block in values/values.yml, preserving every
-    # other setting. Merged into the Helm values only when enable_gcp_batch is set.
+    # Overrides only the gcp_batch runner region; deep-merges over the runner block
+    # in the values files, preserving every other setting. Merged in only when
+    # enable_gcp_batch is set and a region is known, so a region in a user-supplied
+    # values file survives when detection fails.
     _helm_values_gcp_batch:
       configs:
         job_conf.yml:
