@@ -199,8 +199,16 @@ pulsar_api_key: ""                         # Pulsar API key
 ```yaml
 enable_gcp_batch: true                     # Auto-configure Galaxy for GCP Batch runner
 gcp_batch_service_account_email: ""        # Service account email for Batch
-gcp_batch_region: "us-east4"               # Region for GCP Batch
+gcp_batch_region: ""                       # Region for GCP Batch; empty = derive
+                                           # it from the VM's zone
 ```
+
+When `gcp_batch_region` is empty, the region is derived from the VM's own zone
+via the GCE metadata server (`us-central1-f` becomes `us-central1`) so Batch
+jobs run in the same region as the cluster's NFS server. Set it explicitly to
+pin a region; an explicit value is never overridden by detection. If detection
+fails and no value is set, the region in the Helm values files is used unchanged
+and a warning is printed.
 
 ## Dependencies
 
