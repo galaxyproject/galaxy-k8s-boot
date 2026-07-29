@@ -1,4 +1,11 @@
 
+terra:
+  launch:
+    workspace: ""
+    namespace: ""
+    drsURL: ""
+    apiURL: ""
+
 image:
   repository: quay.io/galaxyproject/galaxy-min
   tag: "26.1-auto"
@@ -155,6 +162,112 @@ configs:
       - type: total_walltime
         window: 1  # number in days
         value: '96:00:00'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
+  file_sources_conf.yml:
+    - doc: "{{ .Values.terra.launch.workspace }}"
+      id: terra-launch-workspace
+      workspace: "{{ .Values.terra.launch.workspace }}"
+      namespace: "{{ .Values.terra.launch.namespace }}"
+      type: anvil
+      on_anvil: True
+      writable: True
+      api_url: "{{ .Values.terra.launch.apiURL }}"
+      drs_url: "{{ .Values.terra.launch.drsURL }}"
+
+    - type: ftp
+      id: ebi-ftp
+      label: "EBI FTP server"
+      doc: "European Bioinformatic Institute FTP server"
+      host: "ftp.ebi.ac.uk"
+      user: "anonymous"
+      passwd: ""
+      timeout: 10
+      port: 21
+
+    - type: ftp
+      id: covid-monitoring
+      label: "SARS-CoV-2 result files"
+      doc: "SARS-CoV-2 variants and consensus sequences"
+      host: "xfer13.crg.eu"
+      user: "anonymous"
+      passwd: ""
+      timeout: 10
+      port: 21
+
+    - type: ftp
+      id: ncbi-ftp
+      label: "NCBI FTP server"
+      doc: "NCBI FTP server"
+      host: "ftp.ncbi.nlm.nih.gov"
+      user: "anonymous"
+      passwd: ""
+      timeout: 10
+      port: 21
+
+    - type: ftp
+      id: ensembl-ftp
+      label: "ENSEMBL FTP server"
+      doc: "ENSEMBL FTP server"
+      host: "ftp.ensemblgenomes.org/vol1/pub/"
+      user: "anonymous"
+      passwd: ""
+      timeout: 10
+      port: 21
+
+    - type: s3fs
+      label: Genome Ark
+      id: genomeark
+      doc: Access to Genome Ark open data on AWS.
+      bucket: genomeark
+      anon: true
+
+    - type: s3fs
+      label: 1000 Genomes
+      id: 1000genomes
+      doc: Access to the 1000 Genomes Project with human genetic variation, including SNPs, structural variants, and their haplotype context.
+      bucket: 1000genomes
+      anon: true
+
+    - type: s3fs
+      label: The Cancer Genome Atlas
+      id: tcga-2-open
+      doc: Access to the Cancer Genome Atlas (TCGA)
+      bucket: tcga-2-open
+      anon: true
+
+    - type: s3fs
+      label: COVID-19 Data Lake
+      id: covid19-lake
+      doc: A centralized repository of up-to-date and curated datasets on or related to the spread and characteristics of the novel corona virus (SARS-CoV-2) and its associated illness, COVID-19
+      bucket: covid19-lake
+      anon: true
+
+    - type: s3fs
+      label: Encyclopedia of DNA Elements (ENCODE)
+      id: encode-public
+      doc: The Encyclopedia of DNA Elements (ENCODE) Consortium is an international collaboration of research groups funded by the National Human Genome Research Institute (NHGRI)
+      bucket: encode-public
+      anon: true
+
+    - type: s3fs
+      label: Coupled Model Intercomparison Project 6
+      id: esgf-world
+      doc: The sixth phase of global coupled ocean-atmosphere general circulation model ensemble
+      bucket: esgf-world
+      anon: true
+
+    - type: s3fs
+      label: CMIP6 GCMs downscaled using WRF
+      id: wrf-cmip6-noversioning
+      doc: High-resolution historical and future climate simulations from 1980-2100
+      bucket: wrf-cmip6-noversioning
+      anon: true
+
+    - type: s3fs
+      label: GBIF European region public datasets
+      id: gbif-open-data-eu-central-1
+      doc: The Global Biodiversity Information Facility is an international network and data infrastructure aimed at providing anyone, anywhere, open access to data about all types of life on Earth.
+      bucket: gbif-open-data-eu-central-1
+      anon: true
 
 jobs:
    rules:
@@ -228,6 +341,9 @@ extraFileMappings:
       </html>
 
 webHandlers:
+  resources:
+    requests:
+      cpu: 0.2
   gunicorn:
     timeout: 900             # 15 minutes!
   startupProbe:
@@ -236,13 +352,29 @@ webHandlers:
     failureThreshold: 120    # 120 * 10 = 20 minutes!
 
 workflowHandlers:
+  resources:
+    requests:
+      cpu: 0.1
   startupProbe:
     initialDelaySeconds: 60
     periodSeconds: 10
     failureThreshold: 120
 
 jobHandlers:
+  resources:
+    requests:
+      cpu: 0.4
   startupProbe:
     initialDelaySeconds: 60
     periodSeconds: 10
     failureThreshold: 120
+
+nginx:
+  resources:
+    requests:
+      cpu: 0.05
+
+celery:
+  resources:
+    requests:
+      cpu: 0.05
