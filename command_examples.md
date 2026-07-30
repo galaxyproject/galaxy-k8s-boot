@@ -61,7 +61,7 @@ ansible-playbook -i inventories/vm.ini playbook.yml \
   -e "chart_values_file=values.yml" \
   -e "rke2_token=my-secure-token"
 
-# Bare Ubuntu VM deployment (full setup)
+# Bare Debian 12 VM deployment (full setup)
 ansible-playbook -i inventories/vm.ini playbook.yml \
   -e "setup_system=true" \
   -e "application=galaxy" \

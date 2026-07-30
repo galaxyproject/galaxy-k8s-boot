@@ -15,6 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: dev
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract version from payload
@@ -78,7 +79,7 @@ jobs:
             ---
             *This PR was created automatically by the galaxy-helm release process.*
           branch: update-galaxy-chart-${{ steps.extract-version.outputs.new_version }}
-          base: master
+          base: dev
           labels: |
             automated
             dependencies

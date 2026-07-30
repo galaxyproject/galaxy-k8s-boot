@@ -89,7 +89,7 @@ gcloud compute instances create ea-fresh \
   --project=anvil-and-terra-development \
   --zone=us-east4-c \
   --machine-type=e2-standard-4 \
-  --image=galaxy-k8s-boot-v2026-02-25 \
+  --image=galaxy-k8s-boot-v2026-06-30 \
   --image-project=anvil-and-terra-development \
   --boot-disk-size=100GB \
   --boot-disk-type=pd-balanced \
