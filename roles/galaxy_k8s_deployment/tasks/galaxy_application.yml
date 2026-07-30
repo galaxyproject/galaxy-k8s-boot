@@ -355,6 +355,12 @@
         size: "{{ galaxy_persistence_size }}"
       postgresql:
         galaxyDatabasePassword: "{{ galaxy_db_password }}"
+      terra:
+        launch:
+          workspace: "{{ terra_workspace | default('') }}"
+          namespace: "{{ terra_namespace | default('') }}"
+          drsURL: "{{ terra_drs_url | default('') }}"
+          apiURL: "{{ terra_api_url | default('') }}"
       configs:
         galaxy.yml:
           galaxy:
