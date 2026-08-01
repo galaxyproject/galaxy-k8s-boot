@@ -14,3 +14,11 @@ image_prep.ini
 vm.ini
 ea-no-commit/
 conductor/
+.clinerules
+.windsurfrules
+AGENTS.md
+CLAUDE.md
+gcp.pem
+opencode.json
+sqz.mdc
+sqz-compress.json

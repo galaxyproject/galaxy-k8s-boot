@@ -91,12 +91,23 @@ restore_galaxy: false
 
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
+# Pass the caller's `X-Forwarded-*` headers through to backends instead of
+# overwriting them from the controller's own connection. Enable this only when an
+# external L7 proxy terminates TLS and every request arrives through it, as with
+# Leonardo on Terra: there, the controller would otherwise stamp
+# `X-Forwarded-Proto: http`, so tusd hands the browser an `http://` upload URL
+# that is then blocked as mixed content on an `https://` page.
+# Off by default because it makes the controller trust caller-supplied
+# `X-Forwarded-*`. On a directly reachable VM that lets anyone forge the scheme,
+# host, and client IP seen by Galaxy. When enabling, also narrow
+# `proxy-real-ip-cidr` (default `0.0.0.0/0`) to the proxy to bound the trust.
+ingress_use_forwarded_headers: false
 
 # Galaxy Application Configuration
 use_local_chart: false
-galaxy_prefix: "/"
+galaxy_prefix: "/galaxy"
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.8.1"
+galaxy_chart_version: "6.8.2"
 galaxy_deps_chart: cloudve/galaxy-deps
 galaxy_deps_version: "1.1.1"
 
@@ -135,6 +146,13 @@ gcp_batch_service_account_email: ""
 # An explicit value is never overridden by detection. When this is empty and
 # detection fails, the region in the Helm values files is used unchanged.
 gcp_batch_region: ""
+
+# Terra / AnVIL launch context
+# Supplied at VM launch time by the orchestrating service (e.g. Leonardo).
+terra_workspace: ""
+terra_namespace: ""
+terra_drs_url: ""
+terra_api_url: ""
 
 # Pulsar Application Configuration
 pulsar_chart: cloudve/pulsar

@@ -86,6 +86,23 @@ write_files:
       GCP_BATCH_SERVICE_ACCOUNT_EMAIL=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp_batch_service_account_email" -H "Metadata-Flavor: Google" 2>/dev/null || echo "galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com")
       echo "[$(date)] - GCP Batch service account email: ${GCP_BATCH_SERVICE_ACCOUNT_EMAIL}"
 
+      # Set this to "true" only when an external L7 proxy terminates TLS and is the
+      # only way in (e.g. Leonardo on Terra). It makes ingress-nginx trust the
+      # caller-supplied X-Forwarded-* headers, which is what lets tusd generate
+      # https:// upload URLs instead of http:// ones the browser blocks as mixed
+      # content. On a directly reachable VM it would let anyone forge those headers.
+      INGRESS_USE_FORWARDED_HEADERS=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/ingress_use_forwarded_headers" -H "Metadata-Flavor: Google" 2>/dev/null || echo "false")
+      echo "[$(date)] - Trust caller-supplied X-Forwarded-* headers: ${INGRESS_USE_FORWARDED_HEADERS}"
+
+      # Terra / AnVIL launch context — baked in at VM launch time by the
+      # orchestrating service (e.g. Leonardo). These are intentionally literal
+      # values, not metadata reads, so the orchestrator substitutes them before
+      # the script is sent to the instance.
+      TERRA_WORKSPACE=""
+      TERRA_NAMESPACE=""
+      TERRA_DRS_URL=""
+      TERRA_API_URL=""
+
       GIT_REPO=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-repo" -H "Metadata-Flavor: Google" 2>/dev/null || echo "https://github.com/galaxyproject/galaxy-k8s-boot.git")
       GIT_BRANCH=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/git-branch" -H "Metadata-Flavor: Google" 2>/dev/null || echo "master")
 
@@ -97,6 +114,11 @@ write_files:
         --accept-host-key
         --limit 127.0.0.1
         --extra-vars "gcp_batch_service_account_email=${GCP_BATCH_SERVICE_ACCOUNT_EMAIL}"
+        --extra-vars "terra_workspace=${TERRA_WORKSPACE}"
+        --extra-vars "terra_namespace=${TERRA_NAMESPACE}"
+        --extra-vars "terra_drs_url=${TERRA_DRS_URL}"
+        --extra-vars "terra_api_url=${TERRA_API_URL}"
+        --extra-vars "ingress_use_forwarded_headers=${INGRESS_USE_FORWARDED_HEADERS}"
       )
 
       if [ "$RESTORE_GALAXY" = "true" ]; then

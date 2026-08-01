@@ -355,6 +355,12 @@
         size: "{{ galaxy_persistence_size }}"
       postgresql:
         galaxyDatabasePassword: "{{ galaxy_db_password }}"
+      terra:
+        launch:
+          workspace: "{{ terra_workspace | default('') }}"
+          namespace: "{{ terra_namespace | default('') }}"
+          drsURL: "{{ terra_drs_url | default('') }}"
+          apiURL: "{{ terra_api_url | default('') }}"
       configs:
         galaxy.yml:
           galaxy:
@@ -465,17 +471,17 @@
 # job_conf.yml is mounted with subPath, and Kubernetes never propagates ConfigMap
 # updates into subPath mounts; every deployment that mounts it keeps the config it
 # started with until it is restarted.
-# The deployments to restart are listed explicitly in galaxy_job_conf_deployments
-# below; update that list if the chart adds or renames handlers. The guard task
-# fails the play when a job handler exists in the cluster but is missing from the
-# list, so an omission cannot silently leave a handler running on stale config.
-- name: Restart Galaxy deployments and wait for them to pick up configuration changes
+# Only job handlers need the new config: gcp_batch_volumes is a runner-plugin
+# setting, and Galaxy instantiates runner plugins solely in processes where
+# app.is_job_handler is true (galaxy.jobs.manager.JobManager.start). The web and
+# workflow-scheduler pods attach to no handler pool, so their copy of job_conf.yml
+# is never read by a runner and restarting them only lengthens the deployment.
+- name: Restart Galaxy job handlers and wait for them to pick up configuration changes
   vars:
-    galaxy_job_conf_deployments:
-      - galaxy-web
-      - galaxy-workflow
-      - galaxy-job-0
     galaxy_job_handler_pattern: '^galaxy-job-[0-9]+$'
+    galaxy_job_handler_deployments: >-
+      {{ galaxy_deployments.resources | default([]) | map(attribute='metadata.name')
+         | select('match', galaxy_job_handler_pattern) | list }}
   when:
     - enable_gcp_batch | default(false) | bool
     - nfs_export_path is defined
@@ -488,33 +494,33 @@
         kubeconfig: "{{ kubeconfig_path }}"
       register: galaxy_deployments
 
-    - name: Fail if a job handler is missing from the restart list
-      vars:
-        cluster_job_handlers: >-
-          {{ galaxy_deployments.resources | map(attribute='metadata.name')
-             | select('match', galaxy_job_handler_pattern) | list }}
+    # Matching nothing would silently skip the restart and leave every handler on a
+    # job_conf.yml without gcp_batch_volumes, failing every Batch job. Fail instead,
+    # so a chart that renames its handler deployments is caught here.
+    - name: Fail if no job handler deployments were found
       fail:
         msg: >-
-          Job handler(s)
-          {{ cluster_job_handlers | difference(galaxy_job_conf_deployments) | join(', ') }}
-          exist in the galaxy namespace but are missing from
-          galaxy_job_conf_deployments. They would keep a stale job_conf.yml and every
-          GCP Batch job they dispatch would fail. Add them to the list in this file.
-      when: cluster_job_handlers | difference(galaxy_job_conf_deployments) | length > 0
+          No deployment in the galaxy namespace matches
+          {{ galaxy_job_handler_pattern }}. Found:
+          {{ galaxy_deployments.resources | map(attribute='metadata.name') | join(', ') }}.
+          Update galaxy_job_handler_pattern to match the chart's job handler
+          deployments, otherwise they keep a stale job_conf.yml and every GCP Batch
+          job they dispatch would fail.
+      when: galaxy_job_handler_deployments | length == 0
 
-    - name: Restart Galaxy deployments to pick up configuration changes
+    - name: Restart Galaxy job handlers to pick up configuration changes
       shell: kubectl rollout restart deployment {{ item }} -n galaxy
       environment:
         KUBECONFIG: "{{ kubeconfig_path }}"
-      loop: "{{ galaxy_job_conf_deployments }}"
+      loop: "{{ galaxy_job_handler_deployments }}"
 
-    - name: Wait for restarted deployments to finish rolling out
+    - name: Wait for restarted job handlers to finish rolling out
       # 30 minutes per deployment; first-boot rollouts are slow while Galaxy builds
       # the tool panel and the CVMFS caches warm up.
       shell: kubectl rollout status deployment {{ item }} -n galaxy --timeout=1800s
       environment:
         KUBECONFIG: "{{ kubeconfig_path }}"
-      loop: "{{ galaxy_job_conf_deployments }}"
+      loop: "{{ galaxy_job_handler_deployments }}"
       changed_when: false
 
     # Fail loudly rather than leaving a cluster that looks healthy but errors every
@@ -528,5 +534,5 @@
         /galaxy/server/config/job_conf.yml
       environment:
         KUBECONFIG: "{{ kubeconfig_path }}"
-      loop: "{{ galaxy_job_conf_deployments | select('match', galaxy_job_handler_pattern) | list }}"
+      loop: "{{ galaxy_job_handler_deployments }}"
       changed_when: false
