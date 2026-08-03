@@ -69,12 +69,12 @@ configs:
       gcp_batch:
         load: galaxy.jobs.runners.gcp_batch:GoogleCloudBatchJobRunner
         workers: 4
-        # Basic GCP settings
-        project_id: anvil-and-terra-development
+        # project_id, service_account_email, and custom_vm_image are injected by the
+        # playbook from gcp_project_id (auto-detected from the VM metadata, or set by
+        # Terra at launch), so the GCP project is not hardcoded here.
         # Overridden by the region derived from the VM's zone, or by an explicit
         # gcp_batch_region, when enable_gcp_batch is set
         region: us-east4
-        service_account_email: galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com
 
         # Network configuration (required for NFS access)
         network: default
@@ -94,8 +94,8 @@ configs:
         galaxy_group_id: 10001
         docker_extra_volumes: "/cvmfs/data.galaxyproject.org:/cvmfs/data.galaxyproject.org:ro,/cvmfs/cloud.galaxyproject.org:/cvmfs/cloud.galaxyproject.org:ro"
 
-        # Custom VM image with CVMFS pre-configured (update date as needed)
-        custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-v2026-06-30
+        # custom_vm_image (projects/<gcp_project_id>/global/images/<gcp_batch_vm_image>)
+        # is injected by the playbook; update gcp_batch_vm_image to change the image.
         # Job execution settings
         max_retry_count: 3
         # Max time a job will run before being deleted. Must be in seconds (end with 's'). Default 24hrs.

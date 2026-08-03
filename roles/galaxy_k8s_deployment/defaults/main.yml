@@ -141,6 +141,16 @@ galaxy_job_max_mem: 4
 #   - Update job_conf.yml with GCP Batch runner configuration
 #   - Restart Galaxy deployments to apply changes
 enable_gcp_batch: true
+# GCP project that owns the Batch runner's project_id, service account, and custom VM
+# image. Empty -> auto-detected from the VM's own metadata server, so a Terra-launched
+# VM uses its project; Terra (or any launcher) may inject it explicitly, e.g.
+# -e gcp_project_id=my-project. The playbook injects it into the gcp_batch runner config
+# so the value is NOT hardcoded in values/values.yml.
+gcp_project_id: ""
+# Name of the custom Batch VM image (CVMFS pre-configured) in gcp_project_id.
+gcp_batch_vm_image: "galaxy-k8s-boot-v2026-06-30"
+# Service account the Batch runner uses. Empty -> derived as
+# galaxy-batch-runner@<gcp_project_id>.iam.gserviceaccount.com.
 gcp_batch_service_account_email: ""
 # Leave empty to derive the region from the VM's own zone via the metadata server.
 # An explicit value is never overridden by detection. When this is empty and
