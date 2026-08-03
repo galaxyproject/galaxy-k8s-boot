@@ -334,6 +334,42 @@
     - enable_gcp_batch | default(false) | bool
     - gcp_batch_region | default('') | length == 0
 
+# The gcp_batch runner's project_id / service account / custom VM image all live in one
+# GCP project. Auto-detect it from the VM's own metadata (so a Terra VM uses its own
+# project) unless gcp_project_id was set explicitly (e.g. injected by Terra).
+- name: Detect the GCP project id from the metadata server
+  ansible.builtin.uri:
+    url: http://metadata.google.internal/computeMetadata/v1/project/project-id
+    headers:
+      Metadata-Flavor: Google
+    return_content: true
+    timeout: 5
+  register: gcp_project_meta
+  failed_when: false
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_project_id | default('') | length == 0
+
+- name: Set gcp_project_id from the detected project
+  set_fact:
+    gcp_project_id: "{{ gcp_project_meta.content | default('') | trim }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_project_id | default('') | length == 0
+    - gcp_project_meta.status | default(0) == 200
+    - (gcp_project_meta.content | default('') | trim) | length > 0
+
+- name: Fail if the GCP project id is unknown
+  fail:
+    msg: >-
+      enable_gcp_batch is true but gcp_project_id is empty and could not be detected
+      from the metadata server (HTTP status {{ gcp_project_meta.status | default('n/a') }}).
+      The gcp_batch runner needs a project. Set gcp_project_id explicitly
+      (-e gcp_project_id=<project>).
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_project_id | default('') | length == 0
+
 - name: Helm install Galaxy
   kubernetes.core.helm:
     name: galaxy
@@ -344,7 +380,7 @@
     update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
     timeout: "20m0s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
   vars:
     _helm_prefix_sets:
@@ -382,6 +418,17 @@
           runners:
             gcp_batch:
               region: "{{ gcp_batch_region }}"
+    # Inject the GCP-project-specific gcp_batch settings (deep-merges over the runner
+    # block in the values files) so the project is not hardcoded in values/values.yml.
+    # The service account defaults to galaxy-batch-runner@<project> unless overridden.
+    _helm_values_gcp_project:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              project_id: "{{ gcp_project_id }}"
+              service_account_email: "{{ gcp_batch_service_account_email if (gcp_batch_service_account_email | default('') | length > 0) else ('galaxy-batch-runner@' ~ gcp_project_id ~ '.iam.gserviceaccount.com') }}"
+              custom_vm_image: "projects/{{ gcp_project_id }}/global/images/{{ gcp_batch_vm_image }}"
     _helm_values_cnpg_plugin:
       postgresql:
         cluster:
