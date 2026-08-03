@@ -83,8 +83,19 @@ write_files:
       # Add restore_galaxy if enabled
       RESTORE_GALAXY=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/restore_galaxy" -H "Metadata-Flavor: Google" 2>/dev/null || echo "false")
 
-      GCP_BATCH_SERVICE_ACCOUNT_EMAIL=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp_batch_service_account_email" -H "Metadata-Flavor: Google" 2>/dev/null || echo "galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com")
-      echo "[$(date)] - GCP Batch service account email: ${GCP_BATCH_SERVICE_ACCOUNT_EMAIL}"
+      # GCP project for the Batch runner. Empty -> the playbook auto-detects it from the
+      # VM metadata (project/project-id). Set the gcp_project_id instance attribute
+      # (from Leonardo/Terra) to target a different project.
+      GCP_PROJECT_ID=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp_project_id" -H "Metadata-Flavor: Google" 2>/dev/null || echo "")
+      echo "[$(date)] - GCP project id (empty = auto-detect): ${GCP_PROJECT_ID}"
+
+      # Empty -> the playbook derives galaxy-batch-runner@<gcp_project_id>... so the
+      # service account follows the project instead of being pinned to one.
+      GCP_BATCH_SERVICE_ACCOUNT_EMAIL=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp_batch_service_account_email" -H "Metadata-Flavor: Google" 2>/dev/null || echo "")
+      echo "[$(date)] - GCP Batch service account email (empty = derive from project): ${GCP_BATCH_SERVICE_ACCOUNT_EMAIL}"
+
+      # Optional override of the Batch VM image name; empty -> the role default.
+      GCP_BATCH_VM_IMAGE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp_batch_vm_image" -H "Metadata-Flavor: Google" 2>/dev/null || echo "")
 
       # Set this to "true" only when an external L7 proxy terminates TLS and is the
       # only way in (e.g. Leonardo on Terra). It makes ingress-nginx trust the
@@ -113,6 +124,7 @@ write_files:
         -i /tmp/ansible-inventory/localhost
         --accept-host-key
         --limit 127.0.0.1
+        --extra-vars "gcp_project_id=${GCP_PROJECT_ID}"
         --extra-vars "gcp_batch_service_account_email=${GCP_BATCH_SERVICE_ACCOUNT_EMAIL}"
         --extra-vars "terra_workspace=${TERRA_WORKSPACE}"
         --extra-vars "terra_namespace=${TERRA_NAMESPACE}"
@@ -120,6 +132,11 @@ write_files:
         --extra-vars "terra_api_url=${TERRA_API_URL}"
         --extra-vars "ingress_use_forwarded_headers=${INGRESS_USE_FORWARDED_HEADERS}"
       )
+
+      # Only override the Batch VM image when set; empty leaves the role default.
+      if [ -n "${GCP_BATCH_VM_IMAGE}" ]; then
+          PULL_ARGS+=(--extra-vars "gcp_batch_vm_image=${GCP_BATCH_VM_IMAGE}")
+      fi
 
       if [ "$RESTORE_GALAXY" = "true" ]; then
           PULL_ARGS+=(--extra-vars "restore_galaxy=true")

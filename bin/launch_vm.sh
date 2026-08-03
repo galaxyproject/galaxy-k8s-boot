@@ -22,6 +22,10 @@ PROJECT="anvil-and-terra-development"
 VM_USER="debian"
 ZONE="us-east4-c"
 RESTORE_GALAXY=false
+# GCP project for the Batch runner (gcp_project_id). Empty -> the playbook auto-detects
+# it from the VM's metadata (the VM's own project). Set to override, e.g. Batch in a
+# different project than the VM.
+GCP_PROJECT_ID=""
 
 # Parse command line arguments
 DISK_NAME=""
@@ -53,7 +57,9 @@ Options:
   -k, --ssh-key SSH_KEY             SSH public key for VM user (required)
   -u, --user USER                   VM user account name (default: $VM_USER)
   -m, --machine-type TYPE           Machine type (default: $MACHINE_TYPE)
-  -p, --project PROJECT             GCP project ID (default: $PROJECT)
+  -p, --project PROJECT             GCP project ID for the VM (default: $PROJECT)
+  --gcp-project-id PROJECT          GCP project for the Batch runner (gcp_project_id).
+                                    Empty -> auto-detected from the VM's metadata.
   -r, --git-repo REPO               Git repository URL (default: $GIT_REPO)
   -s, --disk-size SIZE              Size of NFS persistent disk (default: $DISK_SIZE)
   -z, --zone ZONE                   GCP zone (default: $ZONE)
@@ -163,6 +169,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -p|--project)
             PROJECT="$2"
+            shift 2
+            ;;
+        --gcp-project-id)
+            GCP_PROJECT_ID="$2"
             shift 2
             ;;
         -r|--git-repo)
@@ -446,6 +456,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
     GALAXY_IMPORT_PROFILE_JSON='${GALAXY_IMPORT_PROFILE_JSON}'
     RESTORE_GALAXY="${RESTORE_GALAXY}"
+    GCP_PROJECT_ID="${GCP_PROJECT_ID}"
 EOF
 
 cat >> "$TEMP_USER_DATA" << 'EOF'
@@ -482,6 +493,11 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     EXTRA_VARS="{\"enable_gcp_batch\": true, \"galaxy_chart\": \"${GALAXY_CHART}\", \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_chart\": \"${GALAXY_DEPS_CHART}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}"
     if [ -n "${GALAXY_IMPORT_PROFILE_JSON}" ]; then
         EXTRA_VARS="${EXTRA_VARS}, \"galaxy_import_profile\": ${GALAXY_IMPORT_PROFILE_JSON}"
+    fi
+    # Only pass gcp_project_id when --gcp-project-id was supplied; empty lets the
+    # playbook auto-detect the project from the VM's metadata.
+    if [ -n "${GCP_PROJECT_ID}" ]; then
+        EXTRA_VARS="${EXTRA_VARS}, \"gcp_project_id\": \"${GCP_PROJECT_ID}\""
     fi
     EXTRA_VARS="${EXTRA_VARS}}"
 
