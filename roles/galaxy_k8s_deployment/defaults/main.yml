@@ -122,6 +122,22 @@ galaxy_values_files:
 # Keep it less than or equal to the usable space behind `nfs_size`, and
 # leave headroom if other PVCs also use the `nfs` storage class.
 galaxy_persistence_size: "115Gi"
+
+# Default disk quota for registered users, so Galaxy's storage dashboard shows a
+# limit instead of "unlimited" on a VM whose disk is a fixed size. `enable_quotas`
+# in the Helm values only switches on enforcement; the amount is a database record
+# with no galaxy.yml equivalent, so the playbook creates it through the API.
+galaxy_set_user_quota: true
+# Percentage of `galaxy_persistence_size` to grant. Deliberately below 100: a quota
+# counts only user dataset usage, while the same volume also holds tmp, the tus
+# upload store, and the CVMFS cache.
+galaxy_user_quota_percent: 90
+# Set to pin an explicit amount and ignore the percentage. Must be a size Galaxy can
+# parse -- Kubernetes-style units are rejected (`115Gi` fails, `115 GiB` works), which
+# is why the derived value appends the missing `B`. `unlimited` is also accepted.
+galaxy_user_quota: ""
+galaxy_user_quota_name: "vm-disk-quota"
+
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
 galaxy_bootstrap_api_key: "galaxypassword"
