@@ -101,7 +101,7 @@ configs:
         # Max time a job will run before being deleted. Must be in seconds (end with 's'). Default 24hrs.
         max_run_duration: 86400s
         polling_interval: 30
-        # delete_completed_jobs: true # Not available until 26.1 (is in v26.1-auto images)
+        delete_completed_jobs: false # Not available until 26.1 (is in v26.1-auto images)
       local:
         load: galaxy.jobs.runners.local:LocalJobRunner
         workers: 3
