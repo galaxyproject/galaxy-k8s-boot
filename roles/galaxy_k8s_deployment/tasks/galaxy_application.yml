@@ -583,3 +583,86 @@
         KUBECONFIG: "{{ kubeconfig_path }}"
       loop: "{{ galaxy_job_handler_deployments }}"
       changed_when: false
+
+# ============================================================================
+# Default user disk quota
+# ============================================================================
+# `enable_quotas` in the Helm values only switches quota enforcement on. The amount
+# itself is a database record with no galaxy.yml equivalent, so it has to be created
+# through the API once Galaxy is serving. Without it the storage dashboard reports
+# "unlimited", which is misleading on a VM backed by a fixed-size disk.
+- name: Configure the default user disk quota
+  vars:
+    # ingress-nginx runs with hostNetwork, so the VM reaches Galaxy on its own port 80.
+    _gxy_api: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}"
+    _pvc_num: "{{ galaxy_persistence_size | regex_replace('^([0-9.]+).*$', '\\1') }}"
+    _pvc_unit: "{{ galaxy_persistence_size | regex_replace('^[0-9.]+\\s*', '') }}"
+    # Galaxy's parser wants GiB/MiB where Kubernetes writes Gi/Mi.
+    _gxy_unit: "{{ _pvc_unit if _pvc_unit.endswith('B') else _pvc_unit ~ 'B' }}"
+    # Single backslash: this is a folded scalar, where YAML leaves backslashes literal
+    # (unlike the double-quoted scalars above, which need `\\s`).
+    _derived_quota: >-
+      {{ ((_pvc_num | float) * (galaxy_user_quota_percent | float) / 100) | round(1) ~ ' ' ~ _gxy_unit
+         if galaxy_persistence_size is match('^[0-9.]+\s*[KMGTP]i?B?$') else '' }}
+    _quota_amount: "{{ galaxy_user_quota | default('', true) | ternary(galaxy_user_quota, _derived_quota) | trim }}"
+    # Evaluated lazily, so referencing the register from an earlier block task is safe.
+    _existing_quota: "{{ (_gxy_quotas.json | default([])) | selectattr('name', 'equalto', galaxy_user_quota_name) | list }}"
+  when:
+    - deploy_galaxy | default(true) | bool
+    - galaxy_set_user_quota | default(true) | bool
+    - _quota_amount | length > 0
+  block:
+    - name: Wait for the Galaxy API before setting the quota
+      ansible.builtin.uri:
+        url: "{{ _gxy_api }}/api/version"
+        timeout: 10
+      register: _gxy_version
+      until: _gxy_version.status | default(0) == 200
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Look up the existing default user quota
+      ansible.builtin.uri:
+        url: "{{ _gxy_api }}/api/quotas"
+        headers:
+          x-api-key: "{{ galaxy_bootstrap_api_key }}"
+        timeout: 30
+      register: _gxy_quotas
+      changed_when: false
+
+    - name: Create the default user quota
+      ansible.builtin.uri:
+        url: "{{ _gxy_api }}/api/quotas"
+        method: POST
+        headers:
+          x-api-key: "{{ galaxy_bootstrap_api_key }}"
+        body_format: json
+        body:
+          name: "{{ galaxy_user_quota_name }}"
+          description: "Default quota for registered users, managed by galaxy-k8s-boot"
+          amount: "{{ _quota_amount }}"
+          operation: "="
+          default: registered
+        status_code: [200, 201]
+        timeout: 30
+      when: _existing_quota | length == 0
+
+    # Keep an existing quota in step with the current disk size, so relaunching onto a
+    # resized volume does not leave the dashboard reporting the old limit.
+    - name: Update the existing default user quota
+      ansible.builtin.uri:
+        url: "{{ _gxy_api }}/api/quotas/{{ _existing_quota[0].id }}"
+        method: PUT
+        headers:
+          x-api-key: "{{ galaxy_bootstrap_api_key }}"
+        body_format: json
+        body:
+          amount: "{{ _quota_amount }}"
+        status_code: [200, 201, 204]
+        timeout: 30
+      when: _existing_quota | length > 0
+
+    - name: Display the configured quota
+      debug:
+        msg: "Default user disk quota: {{ _quota_amount }} (from {{ 'galaxy_user_quota' if galaxy_user_quota | length > 0 else galaxy_user_quota_percent ~ '% of ' ~ galaxy_persistence_size }})"
