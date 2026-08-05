@@ -169,12 +169,12 @@ enable_gcp_batch: true
 gcp_project_id: ""
 # Name of the custom Batch VM image (CVMFS pre-configured).
 gcp_batch_vm_image: "galaxy-k8s-boot-v2026-06-30"
-# Project that HOSTS the golden Batch VM image. This is distinct from gcp_project_id
-# (the project the job runs in): the image is published centrally, so on Terra it lives
-# in a different project than the job and must be shared with the job project's Batch
-# service account. Empty -> falls back to gcp_project_id (correct when the deployment
-# runs in the same project the image lives in).
-gcp_batch_vm_image_project: ""
+# Project that HOSTS the golden Batch VM image. Distinct from gcp_project_id (where the
+# job runs): the image is published centrally in anvil-and-terra-development and shared
+# with allAuthenticatedUsers (roles/compute.imageUser), so any project's Batch VMs can use
+# it cross-project. Override if you publish the image elsewhere; set to "" to fall back to
+# gcp_project_id (when the image lives in the same project the deployment runs in).
+gcp_batch_vm_image_project: "anvil-and-terra-development"
 # Service account the Batch runner uses. Empty -> derived as
 # galaxy-batch-runner@<gcp_project_id>.iam.gserviceaccount.com.
 gcp_batch_service_account_email: ""
