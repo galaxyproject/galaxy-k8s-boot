@@ -206,4 +206,9 @@ monitor_chart: cloudve/galaxy-k8s-monitor
 monitor_chart_version: "0.1.1"
 monitor_image: afgane/galaxy-k8s-monitor
 monitor_namespace: galaxy
-monitor_base_path: /monitor
+# Derived from galaxy_prefix so the monitor stays reachable behind an external proxy
+# that only forwards requests under Galaxy's prefix (as Leonardo does on Terra); a
+# fixed /monitor would sit outside that prefix and never be routed. ingress-nginx
+# matches the more specific path first, so this does not shadow Galaxy itself.
+# Set explicitly to pin the monitor somewhere else.
+monitor_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/monitor"
