@@ -370,6 +370,15 @@
     - enable_gcp_batch | default(false) | bool
     - gcp_project_id | default('') | length == 0
 
+# The galaxy.yml key IS galaxy_infrastructure_url (config/__init__.py reads
+# kwargs.get("galaxy_infrastructure_url")); it is NOT infrastructure_url. Empty here means
+# it was omitted from galaxy.yml, so Galaxy keeps its http://localhost:8080 default and
+# derives the URL from the request -- i.e. the value never reached the playbook.
+- name: "DEBUG: galaxy_infrastructure_url passed to galaxy.yml"
+  ansible.builtin.debug:
+    msg: >-
+      galaxy_infrastructure_url -> '{{ galaxy_infrastructure_url | default('') | default('(empty: omitted from galaxy.yml)', true) }}'
+
 - name: Helm install Galaxy
   kubernetes.core.helm:
     name: galaxy
