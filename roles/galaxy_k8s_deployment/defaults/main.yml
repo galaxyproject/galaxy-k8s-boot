@@ -141,6 +141,10 @@ galaxy_user_quota_name: "vm-disk-quota"
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
 galaxy_bootstrap_api_key: "galaxypassword"
+# Public HTTPS URL Galaxy uses to build absolute links (history exports, API
+# callbacks). Leonardo passes this in so Galaxy emits https:// links; empty ->
+# omitted from galaxy.yml so Galaxy derives it from the request.
+galaxy_infrastructure_url: ""
 # Profile values file(s) to pass to galaxy-helm's postInstallJob.imports.
 # Set to [] to disable post-install imports entirely.
 galaxy_import_profile:
@@ -172,6 +176,11 @@ gcp_batch_service_account_email: ""
 # An explicit value is never overridden by detection. When this is empty and
 # detection fails, the region in the Helm values files is used unchanged.
 gcp_batch_region: ""
+# VPC network / subnet the Batch VMs join. Leonardo injects these so Batch VMs
+# land in the same (often non-default) project VPC as the Galaxy VM and can reach
+# the NFS server. Empty -> the value in the Helm values files is used unchanged.
+gcp_batch_network: ""
+gcp_batch_subnet: ""
 
 # Terra / AnVIL launch context
 # Supplied at VM launch time by the orchestrating service (e.g. Leonardo).
