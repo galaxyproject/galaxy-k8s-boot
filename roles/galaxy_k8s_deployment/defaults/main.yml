@@ -141,6 +141,10 @@ galaxy_user_quota_name: "vm-disk-quota"
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
 galaxy_bootstrap_api_key: "galaxypassword"
+# Public HTTPS URL Galaxy uses to build absolute links (history exports, API
+# callbacks). Leonardo passes this in so Galaxy emits https:// links; empty ->
+# omitted from galaxy.yml so Galaxy derives it from the request.
+galaxy_infrastructure_url: ""
 # Profile values file(s) to pass to galaxy-helm's postInstallJob.imports.
 # Set to [] to disable post-install imports entirely.
 galaxy_import_profile:

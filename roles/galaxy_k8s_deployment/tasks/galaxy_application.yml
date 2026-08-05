@@ -401,6 +401,11 @@
         galaxy.yml:
           galaxy:
             bootstrap_admin_api_key: "{{ galaxy_bootstrap_api_key | default(omit) }}"
+            # Leonardo passes the public HTTPS URL so Galaxy emits https:// links.
+            # Empty -> omit the key entirely (omit only fires on falsy with the 2nd
+            # arg): Galaxy keeps its default and derives the URL from the request.
+            # Setting it to "" would mark it "set" and disable that derivation.
+            galaxy_infrastructure_url: "{{ galaxy_infrastructure_url | default(omit, true) }}"
       jobs:
         rules:
           tpv_rules_local.yml:
