@@ -97,6 +97,13 @@ write_files:
       # Optional override of the Batch VM image name; empty -> the role default.
       GCP_BATCH_VM_IMAGE=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp_batch_vm_image" -H "Metadata-Flavor: Google" 2>/dev/null || echo "")
 
+      # VPC network / subnet the Batch VMs join. Leonardo injects these so Batch VMs
+      # land in the same project VPC as the Galaxy VM and can reach NFS. Empty -> the
+      # value in the Helm values files is used unchanged.
+      GCP_BATCH_NETWORK=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-network" -H "Metadata-Flavor: Google" 2>/dev/null || echo "")
+      GCP_BATCH_SUBNET=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-subnet" -H "Metadata-Flavor: Google" 2>/dev/null || echo "")
+      echo "[$(date)] - GCP Batch network/subnet (empty = values default): ${GCP_BATCH_NETWORK}/${GCP_BATCH_SUBNET}"
+
       # Set this to "true" only when an external L7 proxy terminates TLS and is the
       # only way in (e.g. Leonardo on Terra). It makes ingress-nginx trust the
       # caller-supplied X-Forwarded-* headers, which is what lets tusd generate
@@ -126,6 +133,8 @@ write_files:
         --limit 127.0.0.1
         --extra-vars "gcp_project_id=${GCP_PROJECT_ID}"
         --extra-vars "gcp_batch_service_account_email=${GCP_BATCH_SERVICE_ACCOUNT_EMAIL}"
+        --extra-vars "gcp_batch_network=${GCP_BATCH_NETWORK}"
+        --extra-vars "gcp_batch_subnet=${GCP_BATCH_SUBNET}"
         --extra-vars "terra_workspace=${TERRA_WORKSPACE}"
         --extra-vars "terra_namespace=${TERRA_NAMESPACE}"
         --extra-vars "terra_drs_url=${TERRA_DRS_URL}"

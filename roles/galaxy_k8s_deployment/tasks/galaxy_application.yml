@@ -380,7 +380,7 @@
     update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
     timeout: "20m0s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_network if (enable_gcp_batch | default(false) | bool and gcp_batch_network | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_subnet if (enable_gcp_batch | default(false) | bool and gcp_batch_subnet | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
   vars:
     _helm_prefix_sets:
@@ -434,6 +434,23 @@
               project_id: "{{ gcp_project_id }}"
               service_account_email: "{{ gcp_batch_service_account_email if (gcp_batch_service_account_email | default('') | length > 0) else ('galaxy-batch-runner@' ~ gcp_project_id ~ '.iam.gserviceaccount.com') }}"
               custom_vm_image: "projects/{{ gcp_project_id }}/global/images/{{ gcp_batch_vm_image }}"
+    # Inject the Batch VPC network/subnet (deep-merges over the runner block in the
+    # values files) so Batch VMs join the same project VPC as the Galaxy VM and can
+    # reach NFS. Kept as two single-key blocks, each combined only when its value is
+    # set, so an unset one leaves the values-file default untouched (an omit here would
+    # instead delete the base key during the merge).
+    _helm_values_gcp_network:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              network: "{{ gcp_batch_network }}"
+    _helm_values_gcp_subnet:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              subnet: "{{ gcp_batch_subnet }}"
     _helm_values_cnpg_plugin:
       postgresql:
         cluster:

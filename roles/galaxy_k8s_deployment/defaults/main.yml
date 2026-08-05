@@ -176,6 +176,11 @@ gcp_batch_service_account_email: ""
 # An explicit value is never overridden by detection. When this is empty and
 # detection fails, the region in the Helm values files is used unchanged.
 gcp_batch_region: ""
+# VPC network / subnet the Batch VMs join. Leonardo injects these so Batch VMs
+# land in the same (often non-default) project VPC as the Galaxy VM and can reach
+# the NFS server. Empty -> the value in the Helm values files is used unchanged.
+gcp_batch_network: ""
+gcp_batch_subnet: ""
 
 # Terra / AnVIL launch context
 # Supplied at VM launch time by the orchestrating service (e.g. Leonardo).
