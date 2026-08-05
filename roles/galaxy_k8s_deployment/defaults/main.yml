@@ -167,8 +167,14 @@ enable_gcp_batch: true
 # -e gcp_project_id=my-project. The playbook injects it into the gcp_batch runner config
 # so the value is NOT hardcoded in values/values.yml.
 gcp_project_id: ""
-# Name of the custom Batch VM image (CVMFS pre-configured) in gcp_project_id.
+# Name of the custom Batch VM image (CVMFS pre-configured).
 gcp_batch_vm_image: "galaxy-k8s-boot-v2026-06-30"
+# Project that HOSTS the golden Batch VM image. This is distinct from gcp_project_id
+# (the project the job runs in): the image is published centrally, so on Terra it lives
+# in a different project than the job and must be shared with the job project's Batch
+# service account. Empty -> falls back to gcp_project_id (correct when the deployment
+# runs in the same project the image lives in).
+gcp_batch_vm_image_project: ""
 # Service account the Batch runner uses. Empty -> derived as
 # galaxy-batch-runner@<gcp_project_id>.iam.gserviceaccount.com.
 gcp_batch_service_account_email: ""

@@ -370,6 +370,13 @@
     - enable_gcp_batch | default(false) | bool
     - gcp_project_id | default('') | length == 0
 
+- name: "DEBUG: resolved Batch custom_vm_image (must exist + be shared with the job project)"
+  ansible.builtin.debug:
+    msg: >-
+      custom_vm_image ->
+      projects/{{ gcp_batch_vm_image_project if (gcp_batch_vm_image_project | default('') | length > 0) else gcp_project_id }}/global/images/{{ gcp_batch_vm_image }}
+  when: enable_gcp_batch | default(false) | bool
+
 - name: Helm install Galaxy
   kubernetes.core.helm:
     name: galaxy
@@ -433,7 +440,9 @@
             gcp_batch:
               project_id: "{{ gcp_project_id }}"
               service_account_email: "{{ gcp_batch_service_account_email if (gcp_batch_service_account_email | default('') | length > 0) else ('galaxy-batch-runner@' ~ gcp_project_id ~ '.iam.gserviceaccount.com') }}"
-              custom_vm_image: "projects/{{ gcp_project_id }}/global/images/{{ gcp_batch_vm_image }}"
+              # The image lives in gcp_batch_vm_image_project (the central image project),
+              # NOT necessarily gcp_project_id: on Terra the job project has no copy of it.
+              custom_vm_image: "projects/{{ gcp_batch_vm_image_project if (gcp_batch_vm_image_project | default('') | length > 0) else gcp_project_id }}/global/images/{{ gcp_batch_vm_image }}"
     # Inject the Batch VPC network/subnet (deep-merges over the runner block in the
     # values files) so Batch VMs join the same project VPC as the Galaxy VM and can
     # reach NFS. Kept as two single-key blocks, each combined only when its value is
