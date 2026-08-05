@@ -375,7 +375,12 @@
 # it here in the role (not just bin/user_data.sh) means it works regardless of the
 # bootstrap/startup script that launched the VM. Absent -> left empty so the value in
 # the Helm values files is used unchanged.
-- name: Detect the Batch network from the instance metadata
+#
+# The probes run unconditionally (only gated on enable_gcp_batch) so the ansible-pull
+# log always shows exactly what the metadata server returns for these attributes, even
+# when a value already arrived via extra-vars. The set_fact steps still only fill an
+# empty value, so an explicit extra-var/CLI value keeps precedence.
+- name: Probe the gcp-network instance metadata attribute
   ansible.builtin.uri:
     url: http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-network
     headers:
@@ -384,9 +389,27 @@
     timeout: 5
   register: gcp_network_meta
   failed_when: false
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - gcp_batch_network | default('') | length == 0
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Probe the gcp-subnet instance metadata attribute
+  ansible.builtin.uri:
+    url: http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-subnet
+    headers:
+      Metadata-Flavor: Google
+    return_content: true
+    timeout: 5
+  register: gcp_subnet_meta
+  failed_when: false
+  when: enable_gcp_batch | default(false) | bool
+
+- name: "DEBUG: Batch network/subnet metadata lookup"
+  ansible.builtin.debug:
+    msg:
+      - "incoming gcp_batch_network (extra-vars/default): '{{ gcp_batch_network | default('') }}'"
+      - "incoming gcp_batch_subnet  (extra-vars/default): '{{ gcp_batch_subnet | default('') }}'"
+      - "metadata gcp-network -> status={{ gcp_network_meta.status | default('n/a') }} content='{{ gcp_network_meta.content | default('') | trim }}'"
+      - "metadata gcp-subnet  -> status={{ gcp_subnet_meta.status | default('n/a') }} content='{{ gcp_subnet_meta.content | default('') | trim }}'"
+  when: enable_gcp_batch | default(false) | bool
 
 - name: Set gcp_batch_network from the instance metadata
   set_fact:
@@ -397,19 +420,6 @@
     - gcp_network_meta.status | default(0) == 200
     - (gcp_network_meta.content | default('') | trim) | length > 0
 
-- name: Detect the Batch subnet from the instance metadata
-  ansible.builtin.uri:
-    url: http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-subnet
-    headers:
-      Metadata-Flavor: Google
-    return_content: true
-    timeout: 5
-  register: gcp_subnet_meta
-  failed_when: false
-  when:
-    - enable_gcp_batch | default(false) | bool
-    - gcp_batch_subnet | default('') | length == 0
-
 - name: Set gcp_batch_subnet from the instance metadata
   set_fact:
     gcp_batch_subnet: "{{ gcp_subnet_meta.content | default('') | trim }}"
@@ -419,12 +429,12 @@
     - gcp_subnet_meta.status | default(0) == 200
     - (gcp_subnet_meta.content | default('') | trim) | length > 0
 
-- name: Report the resolved Batch network/subnet
+- name: "DEBUG: resolved Batch network/subnet (empty = values-file default is used)"
   ansible.builtin.debug:
     msg: >-
-      GCP Batch network/subnet:
-      {{ gcp_batch_network | default('') | default('(values-file default)', true) }} /
-      {{ gcp_batch_subnet | default('') | default('(values-file default)', true) }}
+      Resolved GCP Batch network/subnet ->
+      network: '{{ gcp_batch_network | default('') | default('(values-file default)', true) }}'
+      subnet: '{{ gcp_batch_subnet | default('') | default('(values-file default)', true) }}'
   when: enable_gcp_batch | default(false) | bool
 
 - name: Helm install Galaxy
