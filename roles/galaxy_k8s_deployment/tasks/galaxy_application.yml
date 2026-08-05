@@ -370,6 +370,63 @@
     - enable_gcp_batch | default(false) | bool
     - gcp_project_id | default('') | length == 0
 
+# Batch VPC network/subnet. Auto-detect from the VM's own instance metadata (the
+# gcp-network / gcp-subnet attributes Leonardo injects) unless set explicitly. Reading
+# it here in the role (not just bin/user_data.sh) means it works regardless of the
+# bootstrap/startup script that launched the VM. Absent -> left empty so the value in
+# the Helm values files is used unchanged.
+- name: Detect the Batch network from the instance metadata
+  ansible.builtin.uri:
+    url: http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-network
+    headers:
+      Metadata-Flavor: Google
+    return_content: true
+    timeout: 5
+  register: gcp_network_meta
+  failed_when: false
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_network | default('') | length == 0
+
+- name: Set gcp_batch_network from the instance metadata
+  set_fact:
+    gcp_batch_network: "{{ gcp_network_meta.content | default('') | trim }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_network | default('') | length == 0
+    - gcp_network_meta.status | default(0) == 200
+    - (gcp_network_meta.content | default('') | trim) | length > 0
+
+- name: Detect the Batch subnet from the instance metadata
+  ansible.builtin.uri:
+    url: http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-subnet
+    headers:
+      Metadata-Flavor: Google
+    return_content: true
+    timeout: 5
+  register: gcp_subnet_meta
+  failed_when: false
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_subnet | default('') | length == 0
+
+- name: Set gcp_batch_subnet from the instance metadata
+  set_fact:
+    gcp_batch_subnet: "{{ gcp_subnet_meta.content | default('') | trim }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_subnet | default('') | length == 0
+    - gcp_subnet_meta.status | default(0) == 200
+    - (gcp_subnet_meta.content | default('') | trim) | length > 0
+
+- name: Report the resolved Batch network/subnet
+  ansible.builtin.debug:
+    msg: >-
+      GCP Batch network/subnet:
+      {{ gcp_batch_network | default('') | default('(values-file default)', true) }} /
+      {{ gcp_batch_subnet | default('') | default('(values-file default)', true) }}
+  when: enable_gcp_batch | default(false) | bool
+
 - name: Helm install Galaxy
   kubernetes.core.helm:
     name: galaxy
