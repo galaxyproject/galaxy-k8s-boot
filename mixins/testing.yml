@@ -1,0 +1,9 @@
+# Lets an admin API key ask Galaxy to read tool-test input data directly
+# from its own filesystem (e.g. the CVMFS-mounted "cloud" toolset, which
+# already ships full test-data alongside each tool) instead of requiring
+# the test client to upload it. Used by galaxy-tool-test's
+# --force_path_paste; do not enable on a production/public-facing server.
+configs:
+  galaxy.yml:
+    galaxy:
+      allow_path_paste: true
