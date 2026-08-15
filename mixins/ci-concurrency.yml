@@ -1,0 +1,11 @@
+# Raises the gcp_batch job runner's handler-side dispatch/poll concurrency
+# from the default of 4. GCP Batch/quota itself isn't the constraint (each
+# job gets its own GCE VM); this setting is what actually limits how many
+# jobs Galaxy will have in flight to Batch at once, independent of how many
+# a test client submits concurrently. Tune to match --parallel-tests on
+# the galaxy-tool-test side.
+configs:
+  job_conf.yml:
+    runners:
+      gcp_batch:
+        workers: 16
