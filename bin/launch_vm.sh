@@ -11,13 +11,13 @@ DISK_SIZE="150GB"
 POSTGRES_DISK_SIZE="10GB"
 DISK_TYPE="pd-balanced"
 GALAXY_CHART="cloudve/galaxy"
-GALAXY_CHART_VERSION="6.8.1"
+GALAXY_CHART_VERSION="6.8.2"
 GALAXY_DEPS_CHART="cloudve/galaxy-deps"
 GALAXY_DEPS_VERSION="1.1.1"
 GIT_BRANCH="anvil"
 GIT_REPO="https://github.com/galaxyproject/galaxy-k8s-boot.git"
 MACHINE_IMAGE="galaxy-k8s-boot-v2026-06-30"
-MACHINE_TYPE="e2-standard-4"
+MACHINE_TYPE="t2d-standard-4"
 PROJECT="anvil-and-terra-development"
 VM_USER="debian"
 ZONE="us-east4-c"
@@ -367,6 +367,16 @@ if [ "$PROFILE_OVERRIDE" = true ]; then
     fi
 fi
 
+# GALAXY_VALUES_FILES_JSON/GALAXY_IMPORT_PROFILE_JSON are JSON arrays and
+# always contain literal double quotes (e.g. ["values/values.yml"]), so they
+# must be escaped before being embedded as double-quoted assignments in the
+# generated user-data script below. Embedding them inside single quotes there
+# is invalid shell syntax - a literal single quote can never appear inside a
+# single-quoted string - which silently truncated the generated script and
+# broke ansible-pull's arguments on every run.
+GALAXY_VALUES_FILES_JSON_ESCAPED=$(printf '%s' "$GALAXY_VALUES_FILES_JSON" | sed 's/"/\\"/g')
+GALAXY_IMPORT_PROFILE_JSON_ESCAPED=$(printf '%s' "$GALAXY_IMPORT_PROFILE_JSON" | sed 's/"/\\"/g')
+
 cat > "$TEMP_USER_DATA" << 'EOF'
 #cloud-config
 runcmd:
@@ -453,8 +463,8 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_CHART="${GALAXY_CHART}"
     GALAXY_CHART_VERSION="${GALAXY_CHART_VERSION}"
     GALAXY_DEPS_VERSION="${GALAXY_DEPS_VERSION}"
-    GALAXY_VALUES_FILES_JSON='${GALAXY_VALUES_FILES_JSON}'
-    GALAXY_IMPORT_PROFILE_JSON='${GALAXY_IMPORT_PROFILE_JSON}'
+    GALAXY_VALUES_FILES_JSON="${GALAXY_VALUES_FILES_JSON_ESCAPED}"
+    GALAXY_IMPORT_PROFILE_JSON="${GALAXY_IMPORT_PROFILE_JSON_ESCAPED}"
     RESTORE_GALAXY="${RESTORE_GALAXY}"
     GCP_PROJECT_ID="${GCP_PROJECT_ID}"
 EOF
@@ -495,7 +505,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
         EXTRA_VARS="${EXTRA_VARS}, \"galaxy_import_profile\": ${GALAXY_IMPORT_PROFILE_JSON}"
     fi
     # Only pass gcp_project_id when --gcp-project-id was supplied; empty lets the
-    # playbook auto-detect the project from the VM's metadata.
+    # playbook auto-detect the project from the VM metadata.
     if [ -n "${GCP_PROJECT_ID}" ]; then
         EXTRA_VARS="${EXTRA_VARS}, \"gcp_project_id\": \"${GCP_PROJECT_ID}\""
     fi
