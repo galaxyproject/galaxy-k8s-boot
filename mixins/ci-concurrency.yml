@@ -8,4 +8,4 @@ configs:
   job_conf.yml:
     runners:
       gcp_batch:
-        workers: 16
+        workers: 32
