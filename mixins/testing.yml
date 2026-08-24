@@ -7,3 +7,10 @@ configs:
   galaxy.yml:
     galaxy:
       allow_path_paste: true
+jobs:
+  rules:
+    tpv_rules_local.yml:
+      destinations:
+        gcp_batch:
+          params:
+            job_id_prefix: anvil-test
