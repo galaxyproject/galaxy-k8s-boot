@@ -64,6 +64,20 @@ configs:
       enable_quotas: true
       single_user: default-user@galaxyproject.org
       admin_users: default-user@galaxyproject.org
+      # Retry stat'ing job outputs before giving up: outputs written by a remote
+      # host (e.g. GCP Batch tasks, reached over NFS through an internal load
+      # balancer) can still read back stale/empty on the handler's own NFS
+      # client for a short window after the job reports done.
+      retry_job_output_collection: 3
+      # Galaxy's default is the core plugin alone, which records only slots,
+      # container and start/end epoch - no memory or CPU accounting. Adding
+      # cgroup gives per-job memory.peak and cpu.stat
+      # Inline rather than a job_metrics_conf file so no extra config file or
+      # pointer is needed; note this is ignored if job_metrics_config_file is
+      # ever set.
+      job_metrics:
+        - type: core
+        - type: cgroup
   job_conf.yml:
     runners:
       gcp_batch:
