@@ -91,12 +91,23 @@ restore_galaxy: false
 
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
+# Pass the caller's `X-Forwarded-*` headers through to backends instead of
+# overwriting them from the controller's own connection. Enable this only when an
+# external L7 proxy terminates TLS and every request arrives through it, as with
+# Leonardo on Terra: there, the controller would otherwise stamp
+# `X-Forwarded-Proto: http`, so tusd hands the browser an `http://` upload URL
+# that is then blocked as mixed content on an `https://` page.
+# Off by default because it makes the controller trust caller-supplied
+# `X-Forwarded-*`. On a directly reachable VM that lets anyone forge the scheme,
+# host, and client IP seen by Galaxy. When enabling, also narrow
+# `proxy-real-ip-cidr` (default `0.0.0.0/0`) to the proxy to bound the trust.
+ingress_use_forwarded_headers: false
 
 # Galaxy Application Configuration
 use_local_chart: false
-galaxy_prefix: "/"
+galaxy_prefix: "/galaxy"
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.8.0"
+galaxy_chart_version: "6.8.2"
 galaxy_deps_chart: cloudve/galaxy-deps
 galaxy_deps_version: "1.1.1"
 
@@ -111,9 +122,29 @@ galaxy_values_files:
 # Keep it less than or equal to the usable space behind `nfs_size`, and
 # leave headroom if other PVCs also use the `nfs` storage class.
 galaxy_persistence_size: "115Gi"
+
+# Default disk quota for registered users, so Galaxy's storage dashboard shows a
+# limit instead of "unlimited" on a VM whose disk is a fixed size. `enable_quotas`
+# in the Helm values only switches on enforcement; the amount is a database record
+# with no galaxy.yml equivalent, so the playbook creates it through the API.
+galaxy_set_user_quota: true
+# Percentage of `galaxy_persistence_size` to grant. Deliberately below 100: a quota
+# counts only user dataset usage, while the same volume also holds tmp, the tus
+# upload store, and the CVMFS cache.
+galaxy_user_quota_percent: 90
+# Set to pin an explicit amount and ignore the percentage. Must be a size Galaxy can
+# parse -- Kubernetes-style units are rejected (`115Gi` fails, `115 GiB` works), which
+# is why the derived value appends the missing `B`. `unlimited` is also accepted.
+galaxy_user_quota: ""
+galaxy_user_quota_name: "vm-disk-quota"
+
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
 galaxy_bootstrap_api_key: "galaxypassword"
+# Public HTTPS URL Galaxy uses to build absolute links (history exports, API
+# callbacks). Leonardo passes this in so Galaxy emits https:// links; empty ->
+# omitted from galaxy.yml so Galaxy derives it from the request.
+galaxy_infrastructure_url: ""
 # Profile values file(s) to pass to galaxy-helm's postInstallJob.imports.
 # Set to [] to disable post-install imports entirely.
 galaxy_import_profile:
@@ -126,11 +157,43 @@ galaxy_job_max_mem: 4
 # This will:
 #   - Detect and configure NFS LoadBalancer IP
 #   - Auto-detect NFS export path for Galaxy PVC
+#   - Derive the Batch region from the VM's zone (unless gcp_batch_region is set)
 #   - Update job_conf.yml with GCP Batch runner configuration
 #   - Restart Galaxy deployments to apply changes
 enable_gcp_batch: true
+# GCP project that owns the Batch runner's project_id, service account, and custom VM
+# image. Empty -> auto-detected from the VM's own metadata server, so a Terra-launched
+# VM uses its project; Terra (or any launcher) may inject it explicitly, e.g.
+# -e gcp_project_id=my-project. The playbook injects it into the gcp_batch runner config
+# so the value is NOT hardcoded in values/values.yml.
+gcp_project_id: ""
+# Name of the custom Batch VM image (CVMFS pre-configured).
+gcp_batch_vm_image: "galaxy-k8s-boot-v2026-06-30"
+# Project that HOSTS the golden Batch VM image. Distinct from gcp_project_id (where the
+# job runs): the image is published centrally in anvil-and-terra-development and shared
+# with allAuthenticatedUsers (roles/compute.imageUser), so any project's Batch VMs can use
+# it cross-project. Override if you publish the image elsewhere; set to "" to fall back to
+# gcp_project_id (when the image lives in the same project the deployment runs in).
+gcp_batch_vm_image_project: "anvil-and-terra-development"
+# Service account the Batch runner uses. Empty -> derived as
+# galaxy-batch-runner@<gcp_project_id>.iam.gserviceaccount.com.
 gcp_batch_service_account_email: ""
-gcp_batch_region: "us-east4"
+# Leave empty to derive the region from the VM's own zone via the metadata server.
+# An explicit value is never overridden by detection. When this is empty and
+# detection fails, the region in the Helm values files is used unchanged.
+gcp_batch_region: ""
+# VPC network / subnet the Batch VMs join. Leonardo injects these so Batch VMs
+# land in the same (often non-default) project VPC as the Galaxy VM and can reach
+# the NFS server. Empty -> the value in the Helm values files is used unchanged.
+gcp_batch_network: ""
+gcp_batch_subnet: ""
+
+# Terra / AnVIL launch context
+# Supplied at VM launch time by the orchestrating service (e.g. Leonardo).
+terra_workspace: ""
+terra_namespace: ""
+terra_drs_url: ""
+terra_api_url: ""
 
 # Pulsar Application Configuration
 pulsar_chart: cloudve/pulsar
@@ -143,4 +206,9 @@ monitor_chart: cloudve/galaxy-k8s-monitor
 monitor_chart_version: "0.1.1"
 monitor_image: afgane/galaxy-k8s-monitor
 monitor_namespace: galaxy
-monitor_base_path: /monitor
+# Derived from galaxy_prefix so the monitor stays reachable behind an external proxy
+# that only forwards requests under Galaxy's prefix (as Leonardo does on Terra); a
+# fixed /monitor would sit outside that prefix and never be routed. ingress-nginx
+# matches the more specific path first, so this does not shadow Galaxy itself.
+# Set explicitly to pin the monitor somewhere else.
+monitor_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/monitor"
