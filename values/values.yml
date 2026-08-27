@@ -8,7 +8,7 @@ terra:
 
 image:
   repository: quay.io/galaxyproject/galaxy-min
-  tag: "26.1-batch-fix"
+  tag: "26.1-min"
 
 ingress:
   enabled: true
