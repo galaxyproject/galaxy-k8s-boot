@@ -66,12 +66,7 @@
           - ReadWriteMany
         persistentVolumeReclaimPolicy: Retain
         storageClassName: ""  # Empty string for static binding
-        mountOptions:
-          - nfsvers=4.2
-          - retrans=2
-          - timeo=30
-          - lock
-          - hard
+        mountOptions: "{{ nfs_mount_options }}"
         nfs:
           server: "{{ nfs_server_ip }}"
           path: "/export/pvc-{{ restore_galaxy_pvc_uuid }}"
