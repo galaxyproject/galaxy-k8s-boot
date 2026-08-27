@@ -96,12 +96,7 @@
         defaultClass: "{{ nfs_default }}"
         allowVolumeExpansion: "{{ nfs_allow_expansion }}"
         reclaimPolicy: "{{ nfs_reclaim }}"
-        mountOptions:
-          - nfsvers=4.2
-          - retrans=2
-          - timeo=30
-          - lock        # Enable NFS locking
-          - hard        # Ensure reliable locking
+        mountOptions: "{{ nfs_mount_options }}"
 
 # ============================================================================
 # GCP Batch: Configure NFS LoadBalancer for internal access
