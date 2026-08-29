@@ -11,7 +11,10 @@ DISK_SIZE="150GB"
 POSTGRES_DISK_SIZE="10GB"
 DISK_TYPE="pd-balanced"
 GALAXY_CHART="cloudve/galaxy"
-GALAXY_CHART_VERSION="6.8.3"
+# Empty on purpose: the pinned chart version lives in
+# roles/galaxy_k8s_deployment/defaults/main.yml so there is one place to
+# bump it. Setting a value here (or via --galaxy-chart-version) overrides it.
+GALAXY_CHART_VERSION=""
 GALAXY_DEPS_CHART="cloudve/galaxy-deps"
 GALAXY_DEPS_VERSION="1.1.1"
 GIT_BRANCH="anvil"
@@ -64,7 +67,7 @@ Options:
   -s, --disk-size SIZE              Size of NFS persistent disk (default: $DISK_SIZE)
   -z, --zone ZONE                   GCP zone (default: $ZONE)
   --galaxy-chart CHART              Galaxy Helm chart location (default: $GALAXY_CHART)
-  --galaxy-chart-version VERSION    Galaxy Helm chart version (default: $GALAXY_CHART_VERSION)
+  --galaxy-chart-version VERSION    Galaxy Helm chart version (default: role default)
   --galaxy-deps-chart CHART         Galaxy dependencies chart location (default: $GALAXY_DEPS_CHART)
   --galaxy-deps-version VERSION     Galaxy dependencies chart version (default: $GALAXY_DEPS_VERSION)
   --postgres-disk DISK_NAME         Name of PostgreSQL disk (default: galaxy-postgres-INSTANCE_NAME)
@@ -276,7 +279,7 @@ echo "Project: $PROJECT"
 echo "Zone: $ZONE"
 echo "Machine Type: $MACHINE_TYPE"
 echo "Machine Image: $MACHINE_IMAGE"
-echo "Galaxy Chart Version: $GALAXY_CHART_VERSION"
+echo "Galaxy Chart Version: ${GALAXY_CHART_VERSION:-(role default)}"
 echo "Galaxy Deps Version: $GALAXY_DEPS_VERSION"
 echo "Galaxy Values Files: ${GALAXY_VALUES_FILES[@]}"
 echo "Git Repository: $GIT_REPO"
@@ -493,14 +496,20 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     echo "[`date`] - Git Repository: ${GIT_REPO}"
     echo "[`date`] - Git Branch: ${GIT_BRANCH}"
     echo "[`date`] - Galaxy Chart: ${GALAXY_CHART}"
-    echo "[`date`] - Galaxy Chart Version: ${GALAXY_CHART_VERSION}"
+    echo "[`date`] - Galaxy Chart Version: ${GALAXY_CHART_VERSION:-(role default)}"
     echo "[`date`] - Galaxy Deps Version: ${GALAXY_DEPS_VERSION}"
     echo "[`date`] - Galaxy Values Files: ${GALAXY_VALUES_FILES_JSON}"
     echo "[`date`] - Galaxy Import Profile: ${GALAXY_IMPORT_PROFILE_JSON:-(role default)}"
     echo "[`date`] - Inventory file created at /tmp/ansible-inventory/localhost; running ansible-pull..."
 
     # Build the ansible-pull extra-vars, only overriding galaxy_import_profile when --profile was used.
-    EXTRA_VARS="{\"enable_gcp_batch\": true, \"galaxy_chart\": \"${GALAXY_CHART}\", \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\", \"galaxy_deps_chart\": \"${GALAXY_DEPS_CHART}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}"
+    EXTRA_VARS="{\"enable_gcp_batch\": true, \"galaxy_chart\": \"${GALAXY_CHART}\", \"galaxy_deps_chart\": \"${GALAXY_DEPS_CHART}\", \"galaxy_deps_version\": \"${GALAXY_DEPS_VERSION}\", \"galaxy_values_files\": ${GALAXY_VALUES_FILES_JSON}"
+    # Only pass galaxy_chart_version when one was supplied; empty lets the
+    # playbook fall through to the role default, so the version is pinned in
+    # exactly one file and cannot drift out of step with it.
+    if [ -n "${GALAXY_CHART_VERSION}" ]; then
+        EXTRA_VARS="${EXTRA_VARS}, \"galaxy_chart_version\": \"${GALAXY_CHART_VERSION}\""
+    fi
     if [ -n "${GALAXY_IMPORT_PROFILE_JSON}" ]; then
         EXTRA_VARS="${EXTRA_VARS}, \"galaxy_import_profile\": ${GALAXY_IMPORT_PROFILE_JSON}"
     fi
