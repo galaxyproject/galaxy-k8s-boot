@@ -305,13 +305,10 @@ jobs:
           scheduling:
             prefer:
               - small-job
-          rules:
-            - id: force_default_container_for_built_in_tools
-              if: |
-                from galaxy.tools import GALAXY_LIB_TOOLS_UNVERSIONED
-                tool.id in GALAXY_LIB_TOOLS_UNVERSIONED or "CONVERTER_" == tool.id[:10] or tool.is_datatype_converter
-              params:
-                docker_container_id_override: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          # No `rules:` here on purpose. Helm replaces lists rather than
+          # merging them, so re-stating tools.default.rules would shadow the
+          # chart's own force_default_container_for_built_in_tools rule
+          # (galaxy-helm galaxy/values.yaml) instead of adding to it.
 
 extraVolumes:
   - name: static-images
