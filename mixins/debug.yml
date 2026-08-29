@@ -1,7 +1,7 @@
 configs:
   galaxy.yml:
     galaxy:
-      cleanup_jobs: never
+      cleanup_job: never
   job_conf.yml:
     runners:
       gcp_batch:
