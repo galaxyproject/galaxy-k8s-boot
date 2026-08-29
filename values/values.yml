@@ -310,6 +310,24 @@ jobs:
           # chart's own force_default_container_for_built_in_tools rule
           # (galaxy-helm galaxy/values.yaml) instead of adding to it.
 
+# Prepended to the startup command of every Galaxy pod, so the limit is
+# inherited by the Galaxy process and everything it forks.
+#
+# The local job runner forks the handler and the child sometimes dies on
+# SIGABRT before it can exec the job script (galaxyproject/galaxy#17773).
+# Because that child still carries the handler's memory image, each crash
+# writes a ~1.8 GB core into the job working directory. With cleanup_job set
+# to anything but `always` those cores are retained, and they fill the disk
+# fast - 16 of them took 28 GB in half an hour on a test run.
+#
+# This suppresses the dumps, not the crash. Note it also removes the only
+# record that the job died from a signal, since the runner discards the
+# process exit status (galaxyproject/galaxy#23410) and the script never runs
+# far enough to write an exit-code file. Drop this line temporarily if a core
+# is ever needed for a backtrace.
+extraInitCommands: |
+  ulimit -c 0
+
 extraVolumes:
   - name: static-images
     configMap:
