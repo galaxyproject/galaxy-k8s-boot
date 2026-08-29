@@ -129,7 +129,7 @@ ingress_use_forwarded_headers: false
 use_local_chart: false
 galaxy_prefix: "/galaxy"
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.8.3"
+galaxy_chart_version: "6.8.4"
 galaxy_deps_chart: cloudve/galaxy-deps
 galaxy_deps_version: "1.1.1"
 

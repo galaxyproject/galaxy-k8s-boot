@@ -55,6 +55,28 @@ nfs_size: "139Gi"
 nfs_default: false
 nfs_allow_expansion: true
 nfs_reclaim: Retain
+# actimeo=1: NFSv4's default attribute caching (acdirmin/acdirmax etc,
+# ~30-60s) lets a client's stat/directory-lookup return a stale, cached
+# view of a file a *different* client just wrote and closed - most visible
+# with job runners where the job's output/instrumentation files are
+# written by a host other than the one running Galaxy (e.g. the GCP Batch
+# runner: the task's NFS mount and the handler's NFS mount are different
+# clients on different network paths). A stat that looks successful but
+# reports a stale, wrong (e.g. zero-length or nonexistent) file mid-window
+# either falls through into a wrong-but-"ok" result (see
+# retry_job_output_collection) or, for job metrics collection - which has
+# no retry mechanism at all - just silently loses that job's metrics.
+# 1s isn't zero (unlike actimeo=0/noac) so routine same-writer stat calls
+# still get a cache hit; it just shrinks the cross-client staleness window
+# from tens of seconds to ~1s instead of eliminating caching (and its
+# performance benefit) entirely.
+nfs_mount_options:
+  - nfsvers=4.2
+  - retrans=2
+  - timeo=30
+  - lock        # Enable NFS locking
+  - hard        # Ensure reliable locking
+  - actimeo=1
 
 # NFS provisioner identifiers (used for persistent data reuse detection)
 nfs_provisioner_namespace: nfs-provisioner
@@ -107,7 +129,7 @@ ingress_use_forwarded_headers: false
 use_local_chart: false
 galaxy_prefix: "/galaxy"
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.8.2"
+galaxy_chart_version: "6.8.3"
 galaxy_deps_chart: cloudve/galaxy-deps
 galaxy_deps_version: "1.1.1"
 
