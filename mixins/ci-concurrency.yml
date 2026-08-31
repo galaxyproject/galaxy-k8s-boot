@@ -19,6 +19,30 @@ configs:
         workers: 40
       local:
         workers: 12
+  galaxy.yml:
+    galaxy:
+      # Galaxy's stock DB pool (size 5 + overflow 10 = 15 connections) was
+      # sized for a single interactive user, not a CI client hammering one
+      # galaxy-web pod. It was never the bottleneck while galaxy-tests'
+      # anvil-test.yaml ran each tool's own test cases with
+      # --parallel-tests 1 (one worker, one tool, one test case in flight
+      # at a time) - only the outer 32-way *tool* concurrency touched the
+      # web pod at once. Bumping that inner flag to 4 (see galaxy-tests'
+      # "Parallelize a tool's own test cases too") multiplies the client's
+      # simultaneous job-status/staging requests by up to 4x on top of
+      # that, and confirmed live (galaxy-tests run 260830-115517): the
+      # stock pool exhausted within minutes - sqlalchemy.exc.TimeoutError:
+      # QueuePool limit of size 5 overflow 10 reached, 926 occurrences in
+      # one run, zero in every run before that change - surfacing to the
+      # client as malformed/empty API responses ("Input staging problem":
+      # JSONDecodeError) that galaxy-tool-test counts as tool errors, not
+      # infrastructure failures. 20+60=80 gives headroom for the worst
+      # case (32 tool workers x 4 parallel test cases = 128 concurrent
+      # client-side operations) without every one of them needing to hold
+      # a DB connection simultaneously. Revisit if QueuePool timeouts
+      # reappear in galaxy-web.log at a higher --parallel-tests value.
+      database_engine_option_pool_size: 20
+      database_engine_option_max_overflow: 60
 
 # Local-runner jobs execute *inside* the job handler pod, so they draw on
 # that pod's memory allowance rather than the node's directly - which makes
