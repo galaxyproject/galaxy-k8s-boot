@@ -770,3 +770,75 @@
     - name: Display the configured quota
       debug:
         msg: "Default user disk quota: {{ _quota_amount }} (from {{ 'galaxy_user_quota' if galaxy_user_quota | length > 0 else galaxy_user_quota_percent ~ '% of ' ~ galaxy_persistence_size }})"
+
+# ============================================================================
+# Force X-Forwarded-Proto: https at galaxy-nginx (external TLS terminator)
+# ============================================================================
+# Behind Terra/Leonardo, TLS terminates at a proxy OUTSIDE the cluster that
+# speaks plain HTTP inward and does not set X-Forwarded-Proto. With
+# ingress_use_forwarded_headers enabled (the same topology flag), the ingress
+# controller passes that absent/http header through, gunicorn trusts it (chart
+# >= 6.8.4 sets --forwarded-allow-ips), and Galaxy builds every qualified URL
+# (history export links, share links) with http:// and issues session cookies
+# without the Secure flag. The chart's nginx map is not parameterizable, so
+# patch the rendered ConfigMap to pin the proto to https -- the same
+# post-deploy-patch pattern used for gcp_batch_volumes above. Helm upgrades
+# revert the ConfigMap; the next playbook run re-applies the pin.
+
+- name: Force X-Forwarded-Proto https in galaxy-nginx (external TLS terminator)
+  when: ingress_use_forwarded_headers | default(false) | bool
+  vars:
+    _xfp_map_default: "default $http_x_forwarded_proto;"
+    _xfp_map_empty: "'' $scheme;"
+  block:
+    - name: Read the galaxy-nginx-conf ConfigMap
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: galaxy-nginx-conf
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: _nginx_conf_cm
+
+    # Both map arms are pinned: 'default' catches a passed-through http value and
+    # the '' arm catches an absent header (which would otherwise fall back to
+    # $scheme = http, since galaxy-nginx itself listens on plain HTTP).
+    - name: Compute the pinned nginx.conf
+      set_fact:
+        _nginx_conf_pinned: >-
+          {{ _nginx_conf_cm.resources[0].data['nginx.conf']
+             | replace(_xfp_map_default, 'default https;')
+             | replace(_xfp_map_empty, "'' https;") }}
+      when: _nginx_conf_cm.resources | length > 0
+
+    - name: Pin X-Forwarded-Proto to https in galaxy-nginx-conf
+      kubernetes.core.k8s:
+        state: patched
+        api_version: v1
+        kind: ConfigMap
+        name: galaxy-nginx-conf
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          data:
+            nginx.conf: "{{ _nginx_conf_pinned }}"
+      register: _nginx_conf_patch
+      when:
+        - _nginx_conf_cm.resources | length > 0
+        - _nginx_conf_pinned != _nginx_conf_cm.resources[0].data['nginx.conf']
+
+    # subPath ConfigMap mounts never refresh in a running pod, so a restart is
+    # required -- but only when the patch actually changed something, keeping
+    # reruns of the playbook restart-free.
+    - name: Restart galaxy-nginx to pick up the pinned proto
+      shell: kubectl rollout restart deployment galaxy-nginx -n galaxy
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      when: _nginx_conf_patch is changed
+
+    - name: Wait for galaxy-nginx to finish rolling out
+      shell: kubectl rollout status deployment galaxy-nginx -n galaxy --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      when: _nginx_conf_patch is changed
+      changed_when: false
