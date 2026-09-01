@@ -123,6 +123,10 @@ ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=rea
 # `X-Forwarded-*`. On a directly reachable VM that lets anyone forge the scheme,
 # host, and client IP seen by Galaxy. When enabling, also narrow
 # `proxy-real-ip-cidr` (default `0.0.0.0/0`) to the proxy to bound the trust.
+# Enabling this flag ALSO pins X-Forwarded-Proto to https in the galaxy-nginx
+# ConfigMap after Helm install (see galaxy_application.yml): the external proxy
+# this topology implies terminates TLS but does not send the header, so without
+# the pin Galaxy builds http:// export/share links and non-Secure cookies.
 ingress_use_forwarded_headers: false
 
 # Galaxy Application Configuration
