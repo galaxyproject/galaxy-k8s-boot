@@ -170,10 +170,6 @@ configs:
         id: map_param_value
       - environment: local
         id: param_value_from_file
-      - environment: local
-        id: tp_awk_tool
-      - environment: local
-        id: tp_grep_tool
     limits:
       - type: total_walltime
         window: 1  # number in days
