@@ -141,6 +141,8 @@ configs:
       - environment: local
         id: __EXPORT_HISTORY__
       - environment: local
+        id: __EXPORT_HISTORY_TO_URI__
+      - environment: local
         id: __IMPORT_HISTORY__
       - environment: local
         id: __SET_METADATA__
@@ -168,10 +170,6 @@ configs:
         id: map_param_value
       - environment: local
         id: param_value_from_file
-      - environment: local
-        id: tp_awk_tool
-      - environment: local
-        id: tp_grep_tool
     limits:
       - type: total_walltime
         window: 1  # number in days
