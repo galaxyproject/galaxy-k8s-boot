@@ -141,6 +141,8 @@ configs:
       - environment: local
         id: __EXPORT_HISTORY__
       - environment: local
+        id: __EXPORT_HISTORY_TO_URI__
+      - environment: local
         id: __IMPORT_HISTORY__
       - environment: local
         id: __SET_METADATA__
