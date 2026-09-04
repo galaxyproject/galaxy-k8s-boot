@@ -29,6 +29,14 @@ RESTORE_GALAXY=false
 # it from the VM's metadata (the VM's own project). Set to override, e.g. Batch in a
 # different project than the VM.
 GCP_PROJECT_ID=""
+# GCE instance labels (comma-separated key=value pairs, gcloud's own --labels
+# format). Empty by default so callers that never pass --labels (e.g. AnVIL's
+# own production launches) get exactly today's unlabeled behavior - this is
+# opt-in, not a new default. Intended for CI-only run tracking (see
+# galaxy-tests' anvil-test.yaml), so cost can later be attributed to a
+# specific run via the GCP billing export's own labels field instead of
+# inferring it from a VM's creation-time window.
+LABELS=""
 
 # Parse command line arguments
 DISK_NAME=""
@@ -63,6 +71,8 @@ Options:
   -p, --project PROJECT             GCP project ID for the VM (default: $PROJECT)
   --gcp-project-id PROJECT          GCP project for the Batch runner (gcp_project_id).
                                     Empty -> auto-detected from the VM's metadata.
+  --labels KEY=VALUE,...            GCE instance labels (gcloud --labels format).
+                                    Empty by default - unlabeled unless a caller opts in.
   -r, --git-repo REPO               Git repository URL (default: $GIT_REPO)
   -s, --disk-size SIZE              Size of NFS persistent disk (default: $DISK_SIZE)
   -z, --zone ZONE                   GCP zone (default: $ZONE)
@@ -115,6 +125,9 @@ Examples:
 
   # Auto-detect and restore Galaxy from existing data
   $0 -k "ssh-rsa AAAAB3..." --restore-galaxy my-galaxy-vm
+
+  # Launch VM with CI-tracking labels (for cost attribution via billing export)
+  $0 -k "ssh-rsa AAAAB3..." --labels="managed-by=galaxy-tests-ci,github-run-id=123456789" my-galaxy-vm
 
 EOF
 }
@@ -213,6 +226,10 @@ while [[ $# -gt 0 ]]; do
         --restore-galaxy)
             RESTORE_GALAXY=true
             shift
+            ;;
+        --labels)
+            LABELS="$2"
+            shift 2
             ;;
         -h|--help|help)
             usage
@@ -567,6 +584,10 @@ GCLOUD_CMD=(
     --metadata-from-file=user-data="$TEMP_USER_DATA"
     --metadata=ssh-keys="$VM_USER:$SSH_KEY"
 )
+
+if [ -n "$LABELS" ]; then
+    GCLOUD_CMD+=(--labels="$LABELS")
+fi
 
 # Add disk flags if not ephemeral only
 if [ "$EPHEMERAL_ONLY" = false ]; then
