@@ -127,7 +127,7 @@ Examples:
   $0 -k "ssh-rsa AAAAB3..." --restore-galaxy my-galaxy-vm
 
   # Launch VM with CI-tracking labels (for cost attribution via billing export)
-  $0 -k "ssh-rsa AAAAB3..." --labels="managed-by=galaxy-tests-ci,github-run-id=123456789" my-galaxy-vm
+  $0 -k "ssh-rsa AAAAB3..." --labels "managed-by=galaxy-tests-ci,github-run-id=123456789" my-galaxy-vm
 
 EOF
 }
