@@ -2,7 +2,7 @@
 # Unified Galaxy/Pulsar Kubernetes deployment playbook
 # Optimized for pre-prepared images with RKE2 prerequisites and Helm
 #
-# Host Group: vm
+# Host Group: vms
 #
 # Usage Examples:
 #   # Deploy Galaxy (default):
@@ -15,7 +15,7 @@
 #   ansible-playbook -i inventory playbook.yml -e "setup_system=true"
 
 - name: Deploy Galaxy/Pulsar on Kubernetes
-  hosts: vm
+  hosts: vms
   gather_facts: true
   become: true
   roles:

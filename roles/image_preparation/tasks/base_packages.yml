@@ -1,4 +1,17 @@
 ---
+- name: Wait for background apt/dpkg locks to be released
+  ansible.builtin.shell: |
+    for i in $(seq 1 60); do
+      if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        exit 0
+      fi
+      sleep 5
+    done
+    exit 1
+  changed_when: false
+  failed_when: false
+  become: true
+
 - name: Update package cache
   ansible.builtin.apt:
     update_cache: true
@@ -16,11 +29,17 @@
   ansible.builtin.apt:
     name:
       - python3-kubernetes
-      - python3-openshift
       - python3-yaml
       - python3-jsonpatch
     state: present
   become: true
+
+- name: Install python3-openshift via apt (Ubuntu only)
+  ansible.builtin.apt:
+    name: python3-openshift
+    state: present
+  become: true
+  when: ansible_facts['distribution'] == 'Ubuntu'
 
 - name: Install Docker prerequisites
   ansible.builtin.apt:
@@ -36,24 +55,32 @@
 
 - name: Add Docker GPG key
   ansible.builtin.get_url:
-    url: https://download.docker.com/linux/ubuntu/gpg
-    dest: /etc/apt/trusted.gpg.d/docker.asc
+    url: https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg
+    dest: /usr/share/keyrings/docker.asc
     mode: '0644'
   when: install_docker | default(false) | bool
   become: true
 
 - name: Add Docker repository
-  ansible.builtin.apt_repository:
-    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: deb
+    uris: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}"
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: stable
+    architectures: amd64
+    signed_by: /usr/share/keyrings/docker.asc
     state: present
-    filename: docker
   when: install_docker | default(false) | bool
   become: true
+  register: _docker_repo
 
 - name: Update apt cache after adding Docker repo
   ansible.builtin.apt:
     update_cache: true
-  when: install_docker | default(false) | bool
+  when:
+    - install_docker | default(false) | bool
+    - _docker_repo is changed
   become: true
 
 - name: Install Docker Engine

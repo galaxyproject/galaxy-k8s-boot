@@ -4,18 +4,12 @@
 
 The playbook in this repo is used to build a VM image for deploying
 Galaxy. Having a custom image allows for faster deployments and a more
-consistent environment. The playbook is designed to work with Ubuntu. Once
+consistent environment. The playbook supports both Debian and Ubuntu. Once
 built, the image can be used to quickly deploy Galaxy instances on Kubernetes
 clusters using RKE2.
 
 Many sample commands are provided that are specific to GCP, but the playbook can
 be adapted for other cloud providers like AWS or OpenStack (e.g., Jetstream2).
-
-## Benefits of Having a Custom Image
-
-- **Faster deployments**: ~50% reduction in startup time
-- **Ubuntu focused**: Simplified maintenance and testing
-- **CVMFS ready**: Pre-configured Galaxy data access
 
 The process will set up the following components on the image:
 
@@ -33,19 +27,29 @@ The process will set up the following components on the image:
 ### CVMFS Client
 - Configured for the following Galaxy's CVMFS data repositories:
   - data.galaxyproject.org
+  - cloud.galaxyproject.org
 
 ## Repo Files Structure
 
 ```
 roles/image_preparation/
-├── defaults/main.yml        # Simplified variables
-├── tasks/
-│   ├── main.yml             # Orchestrates all tasks
-│   ├── base_packages.yml    # Ubuntu package installation
-│   ├── system_config.yml    # Kernel and system settings
-│   ├── rke2_prerequisites.yml # RKE2 prerequisites installation
-│   ├── helm.yml             # Helm installation
-│   └── cleanup.yml          # Image cleanup
+├── README.md
+├── requirements.yml              # Role dependencies
+├── defaults/
+│   └── main.yml                  # Role variables with defaults
+├── files/
+│   └── container_images.yml      # List of container images to prefetch
+├── meta/
+│   └── main.yml                  # Role metadata
+└── tasks/
+    ├── main.yml                  # Orchestrates all tasks
+    ├── base_packages.yml         # Package installation
+    ├── cleanup.yml               # Image cleanup
+    ├── container_prefetch.yml    # Container image prefetching
+    ├── helm.yml                  # Helm installation
+    ├── k3s_binary.yml            # k3s binary download
+    ├── rke2_prerequisites.yml    # RKE2 prerequisites installation
+    └── system_config.yml         # Kernel and system settings
 
 image_prep.yml               # Main playbook for building the image
 playbook.yml                 # Deployment playbook using the prepared image
@@ -58,84 +62,43 @@ bin/prepare_image.sh         # Helper script
 
 ## Usage
 
-### 1. Launch a Ubuntu Instance
-
-Get the latest base Ubuntu image (pick the `amd64` variant). The code has been
-tested with the Ubuntu 24.04.
-
-```bash
-gcloud compute images list \
-  --project=ubuntu-os-cloud \
-  --filter="family=ubuntu-minimal-2404-lts AND status=READY" \
-  --format="value(name)"
-```
-
-Update the `--image` parameter in the instance creation command, as well as
-`--project`, `--zone`, `--service-account`, and `--metadata` as needed.
+The `bin/prepare_image.sh` script handles the entire image build process end
+to end: it creates a temporary GCE VM, runs the Ansible preparation playbook,
+snapshots it as a GCE image, and deletes the VM.
 
 ```bash
-gcloud compute instances create ea-mi \
-  --project=anvil-and-terra-development \
-  --zone=us-east4-b \
-  --machine-type=n1-standard-2 \
-  --image=ubuntu-minimal-2404-noble-amd64-v20251111 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=100GB \
-  --tags=http-server,https-server \
-  --service-account=ea-dev@anvil-and-terra-development.iam.gserviceaccount.com \
-  --scopes=https://www.googleapis.com/auth/cloud-platform \
-  --metadata=ssh-keys="ubuntu:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC66Snr9/0wpnzOkseCDm5xwq8zOI3EyEh0eec0MkED32ZBCFBcS1bnuwh8ZJtjgK0lDEfMAyR9ZwBlGM+BZW1j9h62gw6OyddTNjcKpFEdC9iA6VLpaVMjiEv9HgRw3CglxefYnEefG6j7RW4J9SU1RxEHwhUUPrhNv4whQe16kKaG6P6PNKH8tj8UCoHm3WdcJRXfRQEHkjoNpSAoYCcH3/534GnZrT892oyW2cfiz/0vXOeNkxp5uGZ0iss9XClxlM+eUYA/Klv/HV8YxP7lw8xWSGbTWqL7YkWa8qoQQPiV92qmJPriIC4dj+TuDsoMjbblcgMZN1En+1NEVMbV ea_key_pair"
+./bin/prepare_image.sh
 ```
 
-### 2. Prepare Image
+### Options
 
-#### Customization
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--os` | Base OS preset: `debian12` or `ubuntu2404` | `debian12` |
+| `--name` | Override output image name | `galaxy-k8s-boot-v{YYYY-MM-DD}` |
+| `--zone` | GCP zone | `us-east4-c` |
+| `--project` | GCP project | `anvil-and-terra-development` |
+| `--machine-type` | VM machine type | `n1-standard-2` |
+| `--vm-name` | Override temporary VM name | `galaxy-image-prep` |
+| `--keep-vm` | Don't delete the VM after image creation | |
+| `-v`, `--verbose` | Verbose Ansible output | |
+| `-n`, `--dry-run` | Print the exact commands that would run, then exit | |
 
-Override variables in `defaults/main.yml`, your inventory, or on the command
-line with parameters such as:
+### Running Steps Individually
+
+To get the exact commands for each step without executing them, use
+`--dry-run`. This prints the full `gcloud` and `ansible-playbook` commands
+with all resolved values, which you can copy and run manually.
 
 ```bash
-# Different RKE2 version
--e "rke2_version=v1.34.1+rke2r1"
-
-# Different Helm version
--e "helm_version=v3.19.0"
+./bin/prepare_image.sh --dry-run
+./bin/prepare_image.sh --dry-run --os ubuntu2404 --zone us-central1-a
 ```
 
----
+### Deploy Galaxy
 
-Once a clean VM is running, create or update your inventory file with the
-instance details:
+Once the image is created, deploy Galaxy using the prepared image with
+`playbook.yml`. See the main README for details.
 
-```bash
-cp inventories/image_prep.ini.example inventories/image_prep.ini
-```
-
-Then run the prep playbook to configure it:
-
-```bash
-./bin/prepare_image.sh -i inventories/image_prep.ini
-```
-
-### 3. Create a Custom Image
-
-Stop the instance and then create the image.
-
-```bash
-gcloud compute instances stop ea-mi --zone=us-east4-b
-```
-Create the image, updating the name and source disk as needed:
-
-```bash
-gcloud compute images create galaxy-k8s-boot-v2025-11-14 \
-  --source-disk=ea-mi \
-  --source-disk-zone=us-east4-b \
-  --family=galaxy-k8s-boot \
-  --storage-location=us
-```
-
-### 4. Deploy Galaxy
-
-Once the image is created, you can deploy Galaxy using the prepared image. Use
-the `playbook.yml` to set up the cluster, which has its own documentation in the
-main README in this repo.
+When launching with `bin/launch_vm.sh`, use `--user debian` for Debian-based
+images or `--user ubuntu` for Ubuntu-based images.

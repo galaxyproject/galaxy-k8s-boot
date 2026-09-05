@@ -1,24 +1,18 @@
 ---
 # Galaxy Application Setup Tasks
-- name: Add CloudVE Helm repository
+- name: Ensure Helm repositories are available
   kubernetes.core.helm_repository:
-    name: cloudve
-    repo_url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+    name: "{{ item.name }}"
     state: present
+    repo_url: "{{ item.url }}"
+    force_update: true
+  loop: "{{ helm_repositories }}"
 
 - name: Create the galaxy-deps namespace
   kubernetes.core.k8s:
     kind: Namespace
     name: galaxy-deps
     state: present
-    kubeconfig: "{{ kubeconfig_path }}"
-
-- name: Helm install galaxy-deps
-  kubernetes.core.helm:
-    name: galaxy-deps
-    namespace: galaxy-deps
-    chart_ref: "cloudve/galaxy-deps"
-    chart_version: "{{ galaxy_deps_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
 
 - name: Create the galaxy namespace
@@ -28,33 +22,470 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
-- name: Copy the values file to the remote host
+# ============================================================================
+# Galaxy Data Restoration - Parse Mode
+# ============================================================================
+# Parse restoration mode EARLY so we can deploy CNPG plugin before galaxy-deps
+
+- name: Display restoration mode
+  debug:
+    msg: "Galaxy restoration mode: {{ 'Auto-detect and restore' if restore_galaxy else 'Fresh installation' }}"
+
+# ============================================================================
+# CNPG Skip-Initdb Plugin Deployment
+# ============================================================================
+# CRITICAL: Deploy plugin BEFORE galaxy-deps (which creates PostgreSQL cluster)
+# Plugin must be running to intercept CNPG's initdb request
+# As soon as the plugin is deployed, it does a no-op on initdb and allows PostgreSQL
+# to reuse existing data directories.
+
+- name: Deploy CNPG skip-initdb plugin for database restoration
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition: "{{ lookup('template', 'templates/cnpg_skip_initdb_plugin.yaml.j2') }}"
+  when: restore_galaxy
+
+- name: Wait for CNPG plugin pod to be ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ cnpg_skip_initdb_namespace }}"
+    label_selectors:
+      - "app=skip-initdb"
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: plugin_pod
+  until:
+    - plugin_pod.resources | length > 0
+    - plugin_pod.resources[0].status.phase == "Running"
+  retries: 10
+  delay: 3
+  when: restore_galaxy
+
+- name: Display CNPG plugin status
+  debug:
+    msg: "CNPG skip-initdb plugin deployed. Plugin will skip initdb."
+  when: restore_galaxy
+- name: Ensure CNPG plugin is NOT deployed in fresh install mode
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Deployment
+    name: skip-initdb
+    namespace: "{{ cnpg_skip_initdb_namespace }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+  when: not restore_galaxy
+
+- name: Helm install galaxy-deps
+  kubernetes.core.helm:
+    name: galaxy-deps
+    namespace: galaxy-deps
+    chart_ref: "{{ galaxy_deps_chart }}"
+    chart_version: "{{ galaxy_deps_version }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+
+# ============================================================================
+# Galaxy Data Restoration - Determine PVC UUID
+# ============================================================================
+# Restoration mode already parsed above. Now determine specific PVC UUID.
+
+- name: Auto-detect Galaxy PVC UUID from NFS exports
+  shell: |
+    # Note: glob must be expanded inside container, so we use sh -c
+    for dir in $(kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+      sh -c 'ls -d /export/pvc-* 2>/dev/null'); do
+      # Check if this looks like a Galaxy data directory (has objects/ subdirectory)
+      if kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
+        test -d "$dir/objects" 2>/dev/null; then
+        # Extract UUID from path: /export/pvc-<uuid>
+        basename "$dir" | sed 's/^pvc-//'
+        exit 0
+      fi
+    done
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: auto_detected_uuid
+  ignore_errors: true
+  when: restore_galaxy
+
+- name: Set auto-detected PVC UUID
+  set_fact:
+    detected_galaxy_pvc_uuid: "{{ auto_detected_uuid.stdout | trim }}"
+  when:
+    - restore_galaxy
+    - auto_detected_uuid.stdout is defined
+    - auto_detected_uuid.stdout | trim != ''
+
+- name: Display determined PVC UUID
+  debug:
+    msg: "Using Galaxy PVC UUID: {{ detected_galaxy_pvc_uuid }}"
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is defined
+    - detected_galaxy_pvc_uuid != ''
+
+- name: Warn if auto-detection failed
+  debug:
+    msg: "WARNING: restore_galaxy=true but no existing PVC found in NFS exports. Falling back to fresh installation."
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is not defined or detected_galaxy_pvc_uuid == ''
+
+# Step 2: Restore Galaxy PVC if UUID determined
+- name: Restore Galaxy PVC from existing data
+  block:
+    - name: Set restore_galaxy_pvc_uuid for include
+      set_fact:
+        restore_galaxy_pvc_uuid: "{{ detected_galaxy_pvc_uuid }}"
+
+    - name: Include Galaxy PVC restoration tasks
+      ansible.builtin.include_tasks: restore_galaxy_pvc.yml
+
+    - name: Set Galaxy Helm values for restore mode
+      set_fact:
+        galaxy_helm_extra_sets:
+          - value: "galaxy.persistence.existingClaim=galaxy-galaxy-pvc"
+            value_type: string
+          - value: "galaxy.persistence.storageClass="
+            value_type: string
+
+  rescue:
+    - name: Log restoration failure
+      debug:
+        msg: |
+          WARNING: Galaxy PVC restoration failed. Falling back to fresh deployment.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+    - name: Clear restore variables to trigger fresh deployment
+      set_fact:
+        detected_galaxy_pvc_uuid: ""
+        galaxy_helm_extra_sets: []
+
+  when:
+    - restore_galaxy
+    - detected_galaxy_pvc_uuid is defined
+    - detected_galaxy_pvc_uuid != ''
+
+- name: Set Galaxy Helm values for fresh deployment
+  set_fact:
+    galaxy_helm_extra_sets: []
+  when: not restore_galaxy or detected_galaxy_pvc_uuid | default('') == ''
+
+# ============================================================================
+# GCP Batch: NFS Server Configuration
+# ============================================================================
+# RKE2 without a cloud controller doesn't provision LoadBalancer external IPs.
+# Instead, we patch the NFS service to use the node's internal IP as an externalIP,
+# which is accessible from GCP Batch VMs in the same VPC.
+
+- name: Get node internal IP for NFS access
+  set_fact:
+    nfs_server: "{{ ansible_facts['default_ipv4']['address'] }}"
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Verify NFS service exists
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: nfs-provisioner-nfs-server-provisioner
+    namespace: nfs-provisioner
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: nfs_service_info
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Fail if NFS service not found
+  fail:
+    msg: "NFS service not found. Make sure NFS setup completed successfully."
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_service_info.resources | length == 0
+
+- name: Patch NFS service with node internal IP as externalIP
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: Service
+    name: nfs-provisioner-nfs-server-provisioner
+    namespace: nfs-provisioner
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      spec:
+        externalIPs:
+          - "{{ nfs_server }}"
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Display NFS server access method
+  debug:
+    msg: "Using node internal IP for NFS: {{ nfs_server }} (accessible from GCP Batch VMs in same VPC)"
+  when: enable_gcp_batch | default(false) | bool
+
+# ============================================================================
+# Install Galaxy
+# ============================================================================
+
+- name: Create ConfigMap for Galaxy static images
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-static-images
+        namespace: galaxy
+      binaryData:
+        galaxy-project-logo-white-square.png: "{{ lookup('file', 'files/galaxy-project-logo-white-square.png') | b64encode }}"
+        anvil-project-logo-white.png: "{{ lookup('file', 'files/anvil-project-logo-white.png') | b64encode }}"
+
+# - name: Write Galaxy post-install user values
+#   ansible.builtin.copy:
+#     dest: /tmp/galaxy-postinstall-user.yaml
+#     content: |
+#       postInstallJob:
+#         galaxyUser: "{{ galaxy_user }}"
+#     mode: '0644'
+#   delegate_to: localhost
+#   become: false
+#   when: galaxy_user | default('') | length > 0
+#
+# To also wire the file written above into the Helm values, uncomment the
+# `user_file` set line below and insert `user_file` between `profile` and `base`
+# in the returned list. It overrides the profile's galaxyUser, while user-defined
+# mixins (base) come last and still take precedence:
+#   {%- set user_file = ['/tmp/galaxy-postinstall-user.yaml'] if (galaxy_user | default('') | length > 0) else [] -%}
+#   {{ profile + user_file + base }}
+
+- name: Prepare Galaxy values files list
+  set_fact:
+    _galaxy_values_files: >-
+      {%- set base = galaxy_values_files if (galaxy_values_files is defined and galaxy_values_files | length > 0) else ['values/values.yml'] -%}
+      {%- set profile = galaxy_import_profile | default([]) -%}
+      {{ profile + base }}
+
+- name: Display Galaxy values files being used
+  debug:
+    msg: "Using Galaxy Helm values files: {{ _galaxy_values_files }}"
+
+- name: Copy Galaxy values files to the remote host
   ansible.builtin.copy:
-    src: "{{ galaxy_values_file }}"
-    dest: /tmp/values.yml
+    src: "{{ item }}"
+    dest: "/tmp/galaxy_values_{{ idx }}.yml"
     mode: '0644'
+  loop: "{{ _galaxy_values_files }}"
+  loop_control:
+    index_var: idx
+
+- name: Copy packaged local Galaxy chart to the remote host
+  ansible.builtin.copy:
+    src: "galaxy-{{ galaxy_chart_version }}.tgz"
+    dest: "/tmp/galaxy-chart.tgz"
+    mode: '0644'
+  when: use_local_chart | default(false) | bool
+
+# Derive the GCP Batch region from the VM's own zone so Batch jobs run in-region
+# with the cluster's NFS server. The metadata server reports the true zone
+# (e.g. projects/NUM/zones/us-central1-f) regardless of how the VM was launched;
+# strip the trailing "-<letter>" to get the region. An explicitly set
+# gcp_batch_region always wins, and when neither is available the region in the
+# Helm values files is left untouched (see the _helm_values_gcp_batch merge below).
+- name: Detect GCP zone from the metadata server
+  ansible.builtin.uri:
+    url: http://metadata.google.internal/computeMetadata/v1/instance/zone
+    headers:
+      Metadata-Flavor: Google
+    return_content: true
+    timeout: 5
+  register: gcp_zone_meta
+  failed_when: false
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_region | default('') | length == 0
+
+- name: Derive gcp_batch_region from the detected zone
+  set_fact:
+    gcp_batch_region: "{{ _detected_region }}"
+    _gcp_batch_region_source: "zone {{ _detected_zone }} reported by the metadata server"
+  vars:
+    _detected_zone: "{{ gcp_zone_meta.content | default('') | trim | regex_replace('.*/', '') }}"
+    _detected_region: "{{ _detected_zone | regex_replace('-[a-z]$', '') }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_region | default('') | length == 0
+    - gcp_zone_meta.status | default(0) == 200
+    - _detected_region is match('^[a-z]+-[a-z]+[0-9]+$')
+
+- name: Display GCP Batch region in use
+  debug:
+    msg: "GCP Batch region: {{ gcp_batch_region }} (from {{ _gcp_batch_region_source | default('the gcp_batch_region variable', true) }})"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_region | default('') | length > 0
+
+- name: Warn that the GCP Batch region could not be determined
+  debug:
+    msg: >-
+      WARNING: could not derive the GCP Batch region from the metadata server
+      (HTTP status {{ gcp_zone_meta.status | default('n/a') }}, content
+      '{{ gcp_zone_meta.content | default('') | trim }}'). Batch jobs will use the
+      region set in the Helm values files, which breaks job I/O against the
+      cluster's NFS server if that region is not this VM's region. Set
+      gcp_batch_region explicitly to silence this warning.
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_region | default('') | length == 0
+
+# The gcp_batch runner's project_id / service account / custom VM image all live in one
+# GCP project. Auto-detect it from the VM's own metadata (so a Terra VM uses its own
+# project) unless gcp_project_id was set explicitly (e.g. injected by Terra).
+- name: Detect the GCP project id from the metadata server
+  ansible.builtin.uri:
+    url: http://metadata.google.internal/computeMetadata/v1/project/project-id
+    headers:
+      Metadata-Flavor: Google
+    return_content: true
+    timeout: 5
+  register: gcp_project_meta
+  failed_when: false
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_project_id | default('') | length == 0
+
+- name: Set gcp_project_id from the detected project
+  set_fact:
+    gcp_project_id: "{{ gcp_project_meta.content | default('') | trim }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_project_id | default('') | length == 0
+    - gcp_project_meta.status | default(0) == 200
+    - (gcp_project_meta.content | default('') | trim) | length > 0
+
+- name: Fail if the GCP project id is unknown
+  fail:
+    msg: >-
+      enable_gcp_batch is true but gcp_project_id is empty and could not be detected
+      from the metadata server (HTTP status {{ gcp_project_meta.status | default('n/a') }}).
+      The gcp_batch runner needs a project. Set gcp_project_id explicitly
+      (-e gcp_project_id=<project>).
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_project_id | default('') | length == 0
+
+- name: "DEBUG: resolved Batch custom_vm_image (must exist + be shared with the job project)"
+  ansible.builtin.debug:
+    msg: >-
+      custom_vm_image ->
+      projects/{{ gcp_batch_vm_image_project if (gcp_batch_vm_image_project | default('') | length > 0) else gcp_project_id }}/global/images/{{ gcp_batch_vm_image }}
+# The galaxy.yml key IS galaxy_infrastructure_url (config/__init__.py reads
+# kwargs.get("galaxy_infrastructure_url")); it is NOT infrastructure_url. Empty here means
+# it was omitted from galaxy.yml, so Galaxy keeps its http://localhost:8080 default and
+# derives the URL from the request -- i.e. the value never reached the playbook.
+- name: "DEBUG: galaxy_infrastructure_url passed to galaxy.yml"
+  ansible.builtin.debug:
+    msg: >-
+      galaxy_infrastructure_url -> '{{ galaxy_infrastructure_url | default('') | default('(empty: omitted from galaxy.yml)', true) }}'
+# Batch VPC network/subnet. Auto-detect from the VM's own instance metadata (the
+# gcp-network / gcp-subnet attributes Leonardo injects) unless set explicitly. Reading
+# it here in the role (not just bin/user_data.sh) means it works regardless of the
+# bootstrap/startup script that launched the VM. Absent -> left empty so the value in
+# the Helm values files is used unchanged.
+#
+# The probes run unconditionally (only gated on enable_gcp_batch) so the ansible-pull
+# log always shows exactly what the metadata server returns for these attributes, even
+# when a value already arrived via extra-vars. The set_fact steps still only fill an
+# empty value, so an explicit extra-var/CLI value keeps precedence.
+- name: Probe the gcp-network instance metadata attribute
+  ansible.builtin.uri:
+    url: http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-network
+    headers:
+      Metadata-Flavor: Google
+    return_content: true
+    timeout: 5
+  register: gcp_network_meta
+  failed_when: false
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Probe the gcp-subnet instance metadata attribute
+  ansible.builtin.uri:
+    url: http://metadata.google.internal/computeMetadata/v1/instance/attributes/gcp-subnet
+    headers:
+      Metadata-Flavor: Google
+    return_content: true
+    timeout: 5
+  register: gcp_subnet_meta
+  failed_when: false
+  when: enable_gcp_batch | default(false) | bool
+
+- name: "DEBUG: Batch network/subnet metadata lookup"
+  ansible.builtin.debug:
+    msg:
+      - "incoming gcp_batch_network (extra-vars/default): '{{ gcp_batch_network | default('') }}'"
+      - "incoming gcp_batch_subnet  (extra-vars/default): '{{ gcp_batch_subnet | default('') }}'"
+      - "metadata gcp-network -> status={{ gcp_network_meta.status | default('n/a') }} content='{{ gcp_network_meta.content | default('') | trim }}'"
+      - "metadata gcp-subnet  -> status={{ gcp_subnet_meta.status | default('n/a') }} content='{{ gcp_subnet_meta.content | default('') | trim }}'"
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Set gcp_batch_network from the instance metadata
+  set_fact:
+    gcp_batch_network: "{{ gcp_network_meta.content | default('') | trim }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_network | default('') | length == 0
+    - gcp_network_meta.status | default(0) == 200
+    - (gcp_network_meta.content | default('') | trim) | length > 0
+
+- name: Set gcp_batch_subnet from the instance metadata
+  set_fact:
+    gcp_batch_subnet: "{{ gcp_subnet_meta.content | default('') | trim }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - gcp_batch_subnet | default('') | length == 0
+    - gcp_subnet_meta.status | default(0) == 200
+    - (gcp_subnet_meta.content | default('') | trim) | length > 0
+
+- name: "DEBUG: resolved Batch network/subnet (empty = values-file default is used)"
+  ansible.builtin.debug:
+    msg: >-
+      Resolved GCP Batch network/subnet ->
+      network: '{{ gcp_batch_network | default('') | default('(values-file default)', true) }}'
+      subnet: '{{ gcp_batch_subnet | default('') | default('(values-file default)', true) }}'
+  when: enable_gcp_batch | default(false) | bool
 
 - name: Helm install Galaxy
   kubernetes.core.helm:
     name: galaxy
     namespace: galaxy
-    chart_ref: "{{ galaxy_chart }}"
-    chart_version: "{{ galaxy_chart_version }}"
+    chart_ref: "{{ '/tmp/galaxy-chart.tgz' if (use_local_chart | default(false) | bool) else galaxy_chart }}"
+    chart_version: "{{ omit if (use_local_chart | default(false) | bool) else galaxy_chart_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
-    update_repo_cache: true
-    values_files:
-      - /tmp/values.yml
-    values:
+    update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
+    timeout: "20m0s"
+    values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_network if (enable_gcp_batch | default(false) | bool and gcp_batch_network | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_subnet if (enable_gcp_batch | default(false) | bool and gcp_batch_subnet | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
+  vars:
+    _helm_prefix_sets:
+      - value: "ingress.path={{ galaxy_prefix }}"
+      - value: "ingress.hosts[0].paths[0].path={{ galaxy_prefix }}"
+    _helm_values_base:
       persistence:
         size: "{{ galaxy_persistence_size }}"
       postgresql:
         galaxyDatabasePassword: "{{ galaxy_db_password }}"
+      terra:
+        launch:
+          workspace: "{{ terra_workspace | default('') }}"
+          namespace: "{{ terra_namespace | default('') }}"
+          drsURL: "{{ terra_drs_url | default('') }}"
+          apiURL: "{{ terra_api_url | default('') }}"
       configs:
         galaxy.yml:
           galaxy:
-            single_user: "{{ galaxy_user }}"
-            admin_users: "{{ galaxy_user }}"
-            master_api_key: "{{ galaxy_api_key | default(omit) }}"
+            bootstrap_admin_api_key: "{{ galaxy_bootstrap_api_key | default(omit) }}"
+            # Leonardo passes the public HTTPS URL so Galaxy emits https:// links.
+            # Empty -> omit the key entirely (omit only fires on falsy with the 2nd
+            # arg): Galaxy keeps its default and derives the URL from the request.
+            # Setting it to "" would mark it "set" and disable that derivation.
+            galaxy_infrastructure_url: "{{ galaxy_infrastructure_url | default(omit, true) }}"
       jobs:
         rules:
           tpv_rules_local.yml:
@@ -62,3 +493,352 @@
               k8s:
                 max_cores: "{{ galaxy_job_max_cores }}"
                 max_mem: "{{ galaxy_job_max_mem }}"
+    # Overrides only the gcp_batch runner region; deep-merges over the runner block
+    # in the values files, preserving every other setting. Merged in only when
+    # enable_gcp_batch is set and a region is known, so a region in a user-supplied
+    # values file survives when detection fails.
+    _helm_values_gcp_batch:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              region: "{{ gcp_batch_region }}"
+    # Inject the GCP-project-specific gcp_batch settings (deep-merges over the runner
+    # block in the values files) so the project is not hardcoded in values/values.yml.
+    # The service account defaults to galaxy-batch-runner@<project> unless overridden.
+    _helm_values_gcp_project:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              project_id: "{{ gcp_project_id }}"
+              service_account_email: "{{ gcp_batch_service_account_email if (gcp_batch_service_account_email | default('') | length > 0) else ('galaxy-batch-runner@' ~ gcp_project_id ~ '.iam.gserviceaccount.com') }}"
+              # The image lives in gcp_batch_vm_image_project (the central image project),
+              # NOT necessarily gcp_project_id: on Terra the job project has no copy of it.
+              custom_vm_image: "projects/{{ gcp_batch_vm_image_project if (gcp_batch_vm_image_project | default('') | length > 0) else gcp_project_id }}/global/images/{{ gcp_batch_vm_image }}"
+    # Inject the Batch VPC network/subnet (deep-merges over the runner block in the
+    # values files) so Batch VMs join the same project VPC as the Galaxy VM and can
+    # reach NFS. Kept as two single-key blocks, each combined only when its value is
+    # set, so an unset one leaves the values-file default untouched (an omit here would
+    # instead delete the base key during the merge).
+    _helm_values_gcp_network:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              network: "{{ gcp_batch_network }}"
+    _helm_values_gcp_subnet:
+      configs:
+        job_conf.yml:
+          runners:
+            gcp_batch:
+              subnet: "{{ gcp_batch_subnet }}"
+    _helm_values_cnpg_plugin:
+      postgresql:
+        cluster:
+          plugins:
+            - name: "{{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}"
+
+# ============================================================================
+# GCP Batch: NFS Export Path Detection
+# ============================================================================
+- name: Wait for Galaxy PVC to be bound
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: galaxy-galaxy-pvc
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: galaxy_pvc
+  until: galaxy_pvc.resources | length > 0 and galaxy_pvc.resources[0].status.phase == "Bound"
+  retries: 30
+  delay: 10
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Detect NFS export path for Galaxy PVC
+  shell: |
+    # Wait a moment for NFS export to be available
+    sleep 10
+
+    # Get NFS exports and find the PVC export path
+    showmount -e {{ nfs_server }} | grep '/export/pvc-' | head -1 | awk '{print $1}'
+  register: nfs_export_detection
+  retries: 10
+  delay: 3
+  until: nfs_export_detection.stdout != ""
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Set NFS export path for Galaxy database
+  set_fact:
+    nfs_export_path: "{{ nfs_export_detection.stdout }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_detection.stdout is defined
+    - nfs_export_detection.stdout != ""
+
+- name: Display detected NFS export path
+  debug:
+    msg: "Detected NFS export path for Galaxy PVC: {{ nfs_export_path }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+- name: Fail if NFS export path not detected
+  fail:
+    msg: "Could not detect NFS export path for Galaxy PVC. Available exports: {{ nfs_export_detection.stdout_lines | default('none') }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is not defined or nfs_export_path == ""
+
+# ============================================================================
+# GCP Batch: Update Configuration and Restart
+# ============================================================================
+- name: Get current job_conf.yml from ConfigMap
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: galaxy-configs
+    namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: galaxy_configs
+  when: enable_gcp_batch | default(false) | bool
+
+- name: Update job_conf.yml with gcp_batch_volumes for NFS access
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-configs
+        namespace: galaxy
+      # gcp_batch_volumes format: "server:/remote_path:/mount_path"
+      data: "{{ galaxy_configs.resources[0].data | combine({'job_conf.yml': (galaxy_configs.resources[0].data['job_conf.yml'] | from_yaml | combine({'runners': {'gcp_batch': {'gcp_batch_volumes': nfs_server ~ ':' ~ nfs_export_path ~ ':/galaxy/server/database'}}}, recursive=True) | to_nice_yaml) }) }}"
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+
+# job_conf.yml is mounted with subPath, and Kubernetes never propagates ConfigMap
+# updates into subPath mounts; every deployment that mounts it keeps the config it
+# started with until it is restarted.
+# Only job handlers need the new config: gcp_batch_volumes is a runner-plugin
+# setting, and Galaxy instantiates runner plugins solely in processes where
+# app.is_job_handler is true (galaxy.jobs.manager.JobManager.start). The web and
+# workflow-scheduler pods attach to no handler pool, so their copy of job_conf.yml
+# is never read by a runner and restarting them only lengthens the deployment.
+- name: Restart Galaxy job handlers and wait for them to pick up configuration changes
+  vars:
+    galaxy_job_handler_pattern: '^galaxy-job-[0-9]+$'
+    galaxy_job_handler_deployments: >-
+      {{ galaxy_deployments.resources | default([]) | map(attribute='metadata.name')
+         | select('match', galaxy_job_handler_pattern) | list }}
+  when:
+    - enable_gcp_batch | default(false) | bool
+    - nfs_export_path is defined
+  block:
+    - name: List Galaxy deployments
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: galaxy_deployments
+
+    # Matching nothing would silently skip the restart and leave every handler on a
+    # job_conf.yml without gcp_batch_volumes, failing every Batch job. Fail instead,
+    # so a chart that renames its handler deployments is caught here.
+    - name: Fail if no job handler deployments were found
+      fail:
+        msg: >-
+          No deployment in the galaxy namespace matches
+          {{ galaxy_job_handler_pattern }}. Found:
+          {{ galaxy_deployments.resources | map(attribute='metadata.name') | join(', ') }}.
+          Update galaxy_job_handler_pattern to match the chart's job handler
+          deployments, otherwise they keep a stale job_conf.yml and every GCP Batch
+          job they dispatch would fail.
+      when: galaxy_job_handler_deployments | length == 0
+
+    - name: Restart Galaxy job handlers to pick up configuration changes
+      shell: kubectl rollout restart deployment {{ item }} -n galaxy
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      loop: "{{ galaxy_job_handler_deployments }}"
+
+    - name: Wait for restarted job handlers to finish rolling out
+      # 30 minutes per deployment; first-boot rollouts are slow while Galaxy builds
+      # the tool panel and the CVMFS caches warm up.
+      shell: kubectl rollout status deployment {{ item }} -n galaxy --timeout=1800s
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      loop: "{{ galaxy_job_handler_deployments }}"
+      changed_when: false
+
+    # Fail loudly rather than leaving a cluster that looks healthy but errors every
+    # Batch job. Addressing deployment/<name> lets kubectl pick a pod from the
+    # current ReplicaSet; matching on pod name could select one still terminating
+    # from the previous ReplicaSet and read its pre-restart config.
+    - name: Verify job handlers picked up gcp_batch_volumes
+      shell: >
+        kubectl exec -n galaxy deployment/{{ item }} -c {{ item }} --
+        grep -q '{{ nfs_server }}:{{ nfs_export_path }}:/galaxy/server/database'
+        /galaxy/server/config/job_conf.yml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      loop: "{{ galaxy_job_handler_deployments }}"
+      changed_when: false
+
+# ============================================================================
+# Default user disk quota
+# ============================================================================
+# `enable_quotas` in the Helm values only switches quota enforcement on. The amount
+# itself is a database record with no galaxy.yml equivalent, so it has to be created
+# through the API once Galaxy is serving. Without it the storage dashboard reports
+# "unlimited", which is misleading on a VM backed by a fixed-size disk.
+- name: Configure the default user disk quota
+  vars:
+    # ingress-nginx runs with hostNetwork, so the VM reaches Galaxy on its own port 80.
+    _gxy_api: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}"
+    _pvc_num: "{{ galaxy_persistence_size | regex_replace('^([0-9.]+).*$', '\\1') }}"
+    _pvc_unit: "{{ galaxy_persistence_size | regex_replace('^[0-9.]+\\s*', '') }}"
+    # Galaxy's parser wants GiB/MiB where Kubernetes writes Gi/Mi.
+    _gxy_unit: "{{ _pvc_unit if _pvc_unit.endswith('B') else _pvc_unit ~ 'B' }}"
+    # Single backslash: this is a folded scalar, where YAML leaves backslashes literal
+    # (unlike the double-quoted scalars above, which need `\\s`).
+    _derived_quota: >-
+      {{ ((_pvc_num | float) * (galaxy_user_quota_percent | float) / 100) | round(1) ~ ' ' ~ _gxy_unit
+         if galaxy_persistence_size is match('^[0-9.]+\s*[KMGTP]i?B?$') else '' }}
+    _quota_amount: "{{ galaxy_user_quota | default('', true) | ternary(galaxy_user_quota, _derived_quota) | trim }}"
+    # Evaluated lazily, so referencing the register from an earlier block task is safe.
+    _existing_quota: "{{ (_gxy_quotas.json | default([])) | selectattr('name', 'equalto', galaxy_user_quota_name) | list }}"
+  when:
+    - deploy_galaxy | default(true) | bool
+    - galaxy_set_user_quota | default(true) | bool
+    - _quota_amount | length > 0
+  block:
+    - name: Wait for the Galaxy API before setting the quota
+      ansible.builtin.uri:
+        url: "{{ _gxy_api }}/api/version"
+        timeout: 10
+      register: _gxy_version
+      until: _gxy_version.status | default(0) == 200
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Look up the existing default user quota
+      ansible.builtin.uri:
+        url: "{{ _gxy_api }}/api/quotas"
+        headers:
+          x-api-key: "{{ galaxy_bootstrap_api_key }}"
+        timeout: 30
+      register: _gxy_quotas
+      changed_when: false
+
+    - name: Create the default user quota
+      ansible.builtin.uri:
+        url: "{{ _gxy_api }}/api/quotas"
+        method: POST
+        headers:
+          x-api-key: "{{ galaxy_bootstrap_api_key }}"
+        body_format: json
+        body:
+          name: "{{ galaxy_user_quota_name }}"
+          description: "Default quota for registered users, managed by galaxy-k8s-boot"
+          amount: "{{ _quota_amount }}"
+          operation: "="
+          default: registered
+        status_code: [200, 201]
+        timeout: 30
+      when: _existing_quota | length == 0
+
+    # Keep an existing quota in step with the current disk size, so relaunching onto a
+    # resized volume does not leave the dashboard reporting the old limit.
+    - name: Update the existing default user quota
+      ansible.builtin.uri:
+        url: "{{ _gxy_api }}/api/quotas/{{ _existing_quota[0].id }}"
+        method: PUT
+        headers:
+          x-api-key: "{{ galaxy_bootstrap_api_key }}"
+        body_format: json
+        body:
+          amount: "{{ _quota_amount }}"
+        status_code: [200, 201, 204]
+        timeout: 30
+      when: _existing_quota | length > 0
+
+    - name: Display the configured quota
+      debug:
+        msg: "Default user disk quota: {{ _quota_amount }} (from {{ 'galaxy_user_quota' if galaxy_user_quota | length > 0 else galaxy_user_quota_percent ~ '% of ' ~ galaxy_persistence_size }})"
+
+# ============================================================================
+# Force X-Forwarded-Proto: https at galaxy-nginx (external TLS terminator)
+# ============================================================================
+# Behind Terra/Leonardo, TLS terminates at a proxy OUTSIDE the cluster that
+# speaks plain HTTP inward and does not set X-Forwarded-Proto. With
+# ingress_use_forwarded_headers enabled (the same topology flag), the ingress
+# controller passes that absent/http header through, gunicorn trusts it (chart
+# >= 6.8.4 sets --forwarded-allow-ips), and Galaxy builds every qualified URL
+# (history export links, share links) with http:// and issues session cookies
+# without the Secure flag. The chart's nginx map is not parameterizable, so
+# patch the rendered ConfigMap to pin the proto to https -- the same
+# post-deploy-patch pattern used for gcp_batch_volumes above. Helm upgrades
+# revert the ConfigMap; the next playbook run re-applies the pin.
+
+- name: Force X-Forwarded-Proto https in galaxy-nginx (external TLS terminator)
+  when: ingress_use_forwarded_headers | default(false) | bool
+  vars:
+    _xfp_map_default: "default $http_x_forwarded_proto;"
+    _xfp_map_empty: "'' $scheme;"
+  block:
+    - name: Read the galaxy-nginx-conf ConfigMap
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: galaxy-nginx-conf
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: _nginx_conf_cm
+
+    # Both map arms are pinned: 'default' catches a passed-through http value and
+    # the '' arm catches an absent header (which would otherwise fall back to
+    # $scheme = http, since galaxy-nginx itself listens on plain HTTP).
+    - name: Compute the pinned nginx.conf
+      set_fact:
+        _nginx_conf_pinned: >-
+          {{ _nginx_conf_cm.resources[0].data['nginx.conf']
+             | replace(_xfp_map_default, 'default https;')
+             | replace(_xfp_map_empty, "'' https;") }}
+      when: _nginx_conf_cm.resources | length > 0
+
+    - name: Pin X-Forwarded-Proto to https in galaxy-nginx-conf
+      kubernetes.core.k8s:
+        state: patched
+        api_version: v1
+        kind: ConfigMap
+        name: galaxy-nginx-conf
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          data:
+            nginx.conf: "{{ _nginx_conf_pinned }}"
+      register: _nginx_conf_patch
+      when:
+        - _nginx_conf_cm.resources | length > 0
+        - _nginx_conf_pinned != _nginx_conf_cm.resources[0].data['nginx.conf']
+
+    # subPath ConfigMap mounts never refresh in a running pod, so a restart is
+    # required -- but only when the patch actually changed something, keeping
+    # reruns of the playbook restart-free.
+    - name: Restart galaxy-nginx to pick up the pinned proto
+      shell: kubectl rollout restart deployment galaxy-nginx -n galaxy
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      when: _nginx_conf_patch is changed
+
+    - name: Wait for galaxy-nginx to finish rolling out
+      shell: kubectl rollout status deployment galaxy-nginx -n galaxy --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      when: _nginx_conf_patch is changed
+      changed_when: false

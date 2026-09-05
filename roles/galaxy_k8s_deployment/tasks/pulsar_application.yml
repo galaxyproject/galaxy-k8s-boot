@@ -11,7 +11,7 @@
   kubernetes.core.helm:
     name: pulsar-deps
     namespace: pulsar
-    chart_ref: "cloudve/galaxy-deps"
+    chart_ref: "{{ galaxy_deps_chart }}"
     chart_version: "{{ pulsar_deps_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
     values:

@@ -1,0 +1,19 @@
+postInstallJob:
+  enabled: true
+  galaxyUser: "default-user@galaxyproject.org"
+  bootstrapConfig: |
+    version: 1
+    datasets:
+      "rnaseq-de":
+        - "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"
+        - "https://zenodo.org/records/14056162/files/SRR5085169.tabular"
+        - "https://zenodo.org/records/14056162/files/SRR5085170.tabular"
+        - "https://zenodo.org/records/14056162/files/SRR5085167.tabular"
+        - "https://zenodo.org/records/14056162/files/SRR5085168.tabular"
+      "goseq-go-kegg":
+        - "https://zenodo.org/records/14033254/files/de-result.tabular"
+        - "https://zenodo.org/records/14033254/files/gene-length.tabular"
+        - "https://zenodo.org/records/14033254/files/kegg-pathways.tabular"
+    workflows:
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/refs/heads/main/workflows/transcriptomics/rnaseq-de/rnaseq-de-filtering-plotting.ga"
+      - "https://raw.githubusercontent.com/galaxyproject/iwc/refs/heads/main/workflows/transcriptomics/goseq/goseq-go-kegg-enrichment-analsis.ga"

@@ -33,6 +33,7 @@
         watchIngressWithoutClass: true
         config:
           proxy-body-size: "100G"
+          use-forwarded-headers: "{{ ingress_use_forwarded_headers | bool | lower }}"
 
 - name: "Fix for issue https://github.com/kubernetes/ingress-nginx/issues/5401"
   kubernetes.core.k8s:

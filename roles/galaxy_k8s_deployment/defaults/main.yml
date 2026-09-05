@@ -2,13 +2,15 @@
 # Default variables for galaxy_k8s_deployment role
 
 # Control flags for what components to install
-setup_system: true
+setup_system: false
 setup_rke2: true
+setup_helm: false
 setup_nfs: true
 setup_storage: true
 setup_ingress: true
-deploy_galaxy: false
+deploy_galaxy: true
 deploy_pulsar: false
+deploy_monitor: true
 
 # CVMFS Configuration (installed when setup_system is true)
 setup_cvmfs: true
@@ -17,7 +19,9 @@ galaxy_cvmfs_repos_enabled: config-repo
 cvmfs_quota_limit: 4000
 cvmfs_http_proxies: ["DIRECT"]
 
-# System Setup
+# System Setup (used only if setup_system is true)
+rke2_version: v1.36.2+rke2r1  # https://github.com/rancher/rke2/tags
+helm_version: v4.2.2          # https://github.com/helm/helm/tags
 system_packages:
   - python3
   - python3-pip
@@ -38,37 +42,199 @@ helm_repositories:
     url: https://charts.helm.sh/stable
   - name: cloudve
     url: https://raw.githubusercontent.com/CloudVE/helm-charts/master/
+  - name: ksuderman
+    url: https://ksuderman.github.io/helm_charts
 
 # NFS Storage Configuration
 nfs_version: "1.8.0"
-nfs_persistence_storage_class: blockstorage
-nfs_size: "25Gi"
+# Size of the NFS PVC. On GCP, disk sizes are specified in GB while Kubernetes
+# PVCs use Gi, so a `150GB` disk is only about `139Gi` usable capacity. If you
+# change this, also review `galaxy_persistence_size` below and keep it at or
+# below the usable capacity of the underlying disk.
+nfs_size: "139Gi"
 nfs_default: false
 nfs_allow_expansion: true
-nfs_reclaim: Delete
+nfs_reclaim: Retain
+# actimeo=1: NFSv4's default attribute caching (acdirmin/acdirmax etc,
+# ~30-60s) lets a client's stat/directory-lookup return a stale, cached
+# view of a file a *different* client just wrote and closed - most visible
+# with job runners where the job's output/instrumentation files are
+# written by a host other than the one running Galaxy (e.g. the GCP Batch
+# runner: the task's NFS mount and the handler's NFS mount are different
+# clients on different network paths). A stat that looks successful but
+# reports a stale, wrong (e.g. zero-length or nonexistent) file mid-window
+# either falls through into a wrong-but-"ok" result (see
+# retry_job_output_collection) or, for job metrics collection - which has
+# no retry mechanism at all - just silently loses that job's metrics.
+# 1s isn't zero (unlike actimeo=0/noac) so routine same-writer stat calls
+# still get a cache hit; it just shrinks the cross-client staleness window
+# from tens of seconds to ~1s instead of eliminating caching (and its
+# performance benefit) entirely.
+nfs_mount_options:
+  - nfsvers=4.2
+  - retrans=2
+  - timeo=30
+  - lock        # Enable NFS locking
+  - hard        # Ensure reliable locking
+  - actimeo=1
+
+# NFS provisioner identifiers (used for persistent data reuse detection)
+nfs_provisioner_namespace: nfs-provisioner
+nfs_provisioner_release_name: nfs-provisioner
+nfs_provisioner_pod_name: "{{ nfs_provisioner_release_name }}-nfs-server-provisioner-0"
+nfs_provisioner_service_name: "{{ nfs_provisioner_release_name }}-nfs-server-provisioner"
 
 # Kubernetes Storage Configuration
 cluster_hostname: galaxy
 cinder_csi_version: "2.31.2"
 block_storage_disk_path: /mnt/block_storage
 
+# PostgreSQL Storage Configuration
+postgres_storage_disk_path: /mnt/postgres_storage
+setup_postgres_storage: true
+
+# cert-manager Configuration
+# Required for CNPG skip-initdb plugin TLS certificates
+setup_cert_manager: false
+cert_manager_version: "v1.20.0"
+
+# CNPG Skip-Initdb Plugin Configuration
+# Enable this to allow PostgreSQL to reuse existing data directories
+# Requires: cert-manager installed in the cluster
+cnpg_skip_initdb_enabled: true
+cnpg_skip_initdb_image: "quay.io/galaxyproject/cnpg-i-skip-initdb:0.1"
+# IMPORTANT: Plugin must be deployed in same namespace as CNPG operator (i.e., galaxy-deps)
+cnpg_skip_initdb_namespace: "galaxy-deps"
+cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
+
+# Galaxy Restoration Control
+# When true, automatically detects and restores existing Galaxy PVC and database
+restore_galaxy: false
+
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table
+# Pass the caller's `X-Forwarded-*` headers through to backends instead of
+# overwriting them from the controller's own connection. Enable this only when an
+# external L7 proxy terminates TLS and every request arrives through it, as with
+# Leonardo on Terra: there, the controller would otherwise stamp
+# `X-Forwarded-Proto: http`, so tusd hands the browser an `http://` upload URL
+# that is then blocked as mixed content on an `https://` page.
+# Off by default because it makes the controller trust caller-supplied
+# `X-Forwarded-*`. On a directly reachable VM that lets anyone forge the scheme,
+# host, and client IP seen by Galaxy. When enabling, also narrow
+# `proxy-real-ip-cidr` (default `0.0.0.0/0`) to the proxy to bound the trust.
+# Enabling this flag ALSO pins X-Forwarded-Proto to https in the galaxy-nginx
+# ConfigMap after Helm install (see galaxy_application.yml): the external proxy
+# this topology implies terminates TLS but does not send the header, so without
+# the pin Galaxy builds http:// export/share links and non-Secure cookies.
+ingress_use_forwarded_headers: false
 
 # Galaxy Application Configuration
+use_local_chart: false
+galaxy_prefix: "/galaxy"
 galaxy_chart: cloudve/galaxy
-galaxy_chart_version: "6.6.0"
+galaxy_chart_version: "6.8.4"
+galaxy_deps_chart: cloudve/galaxy-deps
 galaxy_deps_version: "1.1.1"
-galaxy_values_file: "values/values.yml"
-galaxy_persistence_size: "20Gi"
+
+# Galaxy Helm values files configuration
+# Supports multiple values files that will be merged in order
+# Example:
+#   galaxy_values_files: ["values/values.yml", "values/custom.yml"]
+galaxy_values_files:
+  - "values/values.yml"
+
+# Size requested by Galaxy's `galaxy-pvc` claim.
+# Keep it less than or equal to the usable space behind `nfs_size`, and
+# leave headroom if other PVCs also use the `nfs` storage class.
+galaxy_persistence_size: "115Gi"
+
+# Default disk quota for registered users, so Galaxy's storage dashboard shows a
+# limit instead of "unlimited" on a VM whose disk is a fixed size. `enable_quotas`
+# in the Helm values only switches on enforcement; the amount is a database record
+# with no galaxy.yml equivalent, so the playbook creates it through the API.
+galaxy_set_user_quota: true
+# Percentage of `galaxy_persistence_size` to grant. Deliberately below 100: a quota
+# counts only user dataset usage, while the same volume also holds tmp, the tus
+# upload store, and the CVMFS cache.
+galaxy_user_quota_percent: 90
+# Set to pin an explicit amount and ignore the percentage. Must be a size Galaxy can
+# parse -- Kubernetes-style units are rejected (`115Gi` fails, `115 GiB` works), which
+# is why the derived value appends the missing `B`. `unlimited` is also accepted.
+galaxy_user_quota: ""
+galaxy_user_quota_name: "vm-disk-quota"
+
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
-galaxy_api_key: ""
+galaxy_bootstrap_api_key: "galaxypassword"
+# Public HTTPS URL Galaxy uses to build absolute links (history exports, API
+# callbacks). Leonardo passes this in so Galaxy emits https:// links; empty ->
+# omitted from galaxy.yml so Galaxy derives it from the request.
+galaxy_infrastructure_url: ""
+# Profile values file(s) to pass to galaxy-helm's postInstallJob.imports.
+# Set to [] to disable post-install imports entirely.
+galaxy_import_profile:
+  - "{{ role_path }}/files/profiles/anvil.yaml"
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4
+
+# GCP Batch Configuration
+# Set enable_gcp_batch=true to configure Galaxy for GCP Batch job runner
+# This will:
+#   - Detect and configure NFS LoadBalancer IP
+#   - Auto-detect NFS export path for Galaxy PVC
+#   - Derive the Batch region from the VM's zone (unless gcp_batch_region is set)
+#   - Update job_conf.yml with GCP Batch runner configuration
+#   - Restart Galaxy deployments to apply changes
+enable_gcp_batch: true
+# GCP project that owns the Batch runner's project_id, service account, and custom VM
+# image. Empty -> auto-detected from the VM's own metadata server, so a Terra-launched
+# VM uses its project; Terra (or any launcher) may inject it explicitly, e.g.
+# -e gcp_project_id=my-project. The playbook injects it into the gcp_batch runner config
+# so the value is NOT hardcoded in values/values.yml.
+gcp_project_id: ""
+# Name of the custom Batch VM image (CVMFS pre-configured).
+gcp_batch_vm_image: "galaxy-k8s-boot-v2026-06-30"
+# Project that HOSTS the golden Batch VM image. Distinct from gcp_project_id (where the
+# job runs): the image is published centrally in anvil-and-terra-development and shared
+# with allAuthenticatedUsers (roles/compute.imageUser), so any project's Batch VMs can use
+# it cross-project. Override if you publish the image elsewhere; set to "" to fall back to
+# gcp_project_id (when the image lives in the same project the deployment runs in).
+gcp_batch_vm_image_project: "anvil-and-terra-development"
+# Service account the Batch runner uses. Empty -> derived as
+# galaxy-batch-runner@<gcp_project_id>.iam.gserviceaccount.com.
+gcp_batch_service_account_email: ""
+# Leave empty to derive the region from the VM's own zone via the metadata server.
+# An explicit value is never overridden by detection. When this is empty and
+# detection fails, the region in the Helm values files is used unchanged.
+gcp_batch_region: ""
+# VPC network / subnet the Batch VMs join. Leonardo injects these so Batch VMs
+# land in the same (often non-default) project VPC as the Galaxy VM and can reach
+# the NFS server. Empty -> the value in the Helm values files is used unchanged.
+gcp_batch_network: ""
+gcp_batch_subnet: ""
+
+# Terra / AnVIL launch context
+# Supplied at VM launch time by the orchestrating service (e.g. Leonardo).
+terra_workspace: ""
+terra_namespace: ""
+terra_drs_url: ""
+terra_api_url: ""
 
 # Pulsar Application Configuration
 pulsar_chart: cloudve/pulsar
 pulsar_chart_version: "0.2.0"
 pulsar_deps_version: "1.1.1"
 pulsar_api_key: ""
+
+# Galaxy K8s Monitor Configuration
+monitor_chart: cloudve/galaxy-k8s-monitor
+monitor_chart_version: "0.1.1"
+monitor_image: afgane/galaxy-k8s-monitor
+monitor_namespace: galaxy
+# Derived from galaxy_prefix so the monitor stays reachable behind an external proxy
+# that only forwards requests under Galaxy's prefix (as Leonardo does on Terra); a
+# fixed /monitor would sit outside that prefix and never be routed. ingress-nginx
+# matches the more specific path first, so this does not shadow Galaxy itself.
+# Set explicitly to pin the monitor somewhere else.
+monitor_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/monitor"

@@ -18,6 +18,60 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
+- name: Create static PV for NFS backing storage
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata:
+        name: nfs-backing-pv
+      spec:
+        capacity:
+          storage: "{{ nfs_size }}"
+        accessModes:
+          - ReadWriteOnce
+        persistentVolumeReclaimPolicy: Retain
+        storageClassName: ""
+        hostPath:
+          path: /mnt/block_storage
+          type: Directory
+        claimRef:
+          namespace: nfs-provisioner
+          name: nfs-backing-pvc
+
+- name: Create static PVC for NFS backing storage
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: nfs-backing-pvc
+        namespace: nfs-provisioner
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: "{{ nfs_size }}"
+        storageClassName: ""
+        volumeName: nfs-backing-pv
+
+- name: Wait for NFS backing PVC to bind
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: nfs-backing-pvc
+    namespace: nfs-provisioner
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: nfs_backing_pvc
+  until: nfs_backing_pvc.resources[0].status.phase == "Bound"
+  retries: 30
+  delay: 2
+
 - name: Install the Ganesha NFS Helm repository
   kubernetes.core.helm_repository:
     name: nfs-ganesha
@@ -36,16 +90,31 @@
         type: LoadBalancer
       persistence:
         enabled: true
-        storageClass: "{{ nfs_persistence_storage_class }}"
-        size: "{{ nfs_size }}"
+        existingClaim: nfs-backing-pvc
       storageClass:
         create: true
         defaultClass: "{{ nfs_default }}"
         allowVolumeExpansion: "{{ nfs_allow_expansion }}"
         reclaimPolicy: "{{ nfs_reclaim }}"
-        mountOptions:
-          - nfsvers=4.2
-          - retrans=2
-          - timeo=30
-          - lock        # Enable NFS locking
-          - hard        # Ensure reliable locking
+        mountOptions: "{{ nfs_mount_options }}"
+
+# ============================================================================
+# GCP Batch: Configure NFS LoadBalancer for internal access
+# ============================================================================
+- name: Patch NFS service for GCP Batch (internal LoadBalancer with source IP restrictions)
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: nfs-provisioner-nfs-server-provisioner
+        namespace: nfs-provisioner
+        annotations:
+          networking.gke.io/load-balancer-type: "Internal"
+      spec:
+        type: LoadBalancer
+        loadBalancerSourceRanges:
+          - "10.0.0.0/8"  # Restrict to internal GCP networks
+  when: enable_gcp_batch | default(false) | bool

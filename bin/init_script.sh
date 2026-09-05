@@ -8,7 +8,7 @@ exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&
 #-------------------------------
 # Application is either galaxy or pulsar
 APPLICATION=galaxy
-GALAXY_API_KEY=changeme
+GALAXY_BOOTSTRAP_API_KEY=changeme
 PULSAR_API_KEY=changeme
 #-------------------------------
 RESERVED_CORES=2
@@ -36,4 +36,4 @@ rke2_disable=["rke2-traefik", "rke2-ingress-nginx"]
 rke2_debug=true
 EOF
 
-ansible-playbook -i inventories/localhost playbook.yml --extra-vars "job_max_cores=$(($(nproc) - $RESERVED_CORES))" --extra-vars "job_max_mem=$(($(free -g | awk '/^Mem:/{print $2}') - $RESERVED_MEM_GB))" --extra-vars "application=$APPLICATION" --extra-vars "galaxy_api_key=$GALAXY_API_KEY" --extra-vars "pulsar_api_key=$PULSAR_API_KEY"
+ansible-playbook -i inventories/localhost playbook.yml --extra-vars "job_max_cores=$(($(nproc) - $RESERVED_CORES))" --extra-vars "job_max_mem=$(($(free -g | awk '/^Mem:/{print $2}') - $RESERVED_MEM_GB))" --extra-vars "application=$APPLICATION" --extra-vars "galaxy_bootstrap_api_key=$GALAXY_BOOTSTRAP_API_KEY" --extra-vars "pulsar_api_key=$PULSAR_API_KEY"

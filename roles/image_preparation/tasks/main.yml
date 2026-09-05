@@ -1,23 +1,23 @@
 ---
 - name: Include base packages installation
   ansible.builtin.include_tasks: base_packages.yml
-  when: install_base_packages | default(true)
+  when: install_base_packages | default(true) | bool
 
 - name: Include system configuration
   ansible.builtin.include_tasks: system_config.yml
-  when: install_base_packages | default(true)
+  when: install_base_packages | default(true) | bool
 
 - name: Include RKE2 prerequisites installation
   ansible.builtin.include_tasks: rke2_prerequisites.yml
-  when: install_rke2_prerequisites | default(true)
+  when: install_rke2_prerequisites | default(true) | bool
 
 - name: Include Helm installation
   ansible.builtin.include_tasks: helm.yml
-  when: install_helm | default(true)
+  when: install_helm | default(true) | bool
 
 - name: Include container prefetch tasks
   ansible.builtin.include_tasks: container_prefetch.yml
-  when: prefetch_container_images | default(true)
+  when: prefetch_container_images | default(true) | bool
 
 - name: Include cleanup tasks
   ansible.builtin.include_tasks: cleanup.yml

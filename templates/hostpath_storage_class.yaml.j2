@@ -85,7 +85,7 @@ metadata:
   name: local-path
 provisioner: rancher.io/local-path
 volumeBindingMode: WaitForFirstConsumer
-reclaimPolicy: Delete
+reclaimPolicy: Retain
 ---
 kind: ConfigMap
 apiVersion: v1
@@ -119,6 +119,48 @@ data:
             esac
         done
 
+        # Extract base directory and PVC identifier from absolutePath
+        # Path format: /mnt/block_storage/pvc-<uuid>_<namespace>_<pvc-name>
+        baseDir=$(dirname "${absolutePath}")
+        pvcDir=$(basename "${absolutePath}")
+
+        # Extract namespace and pvc-name (everything after the UUID)
+        # Pattern: pvc-<uuid>_<namespace>_<pvc-name>
+        suffix=$(echo "${pvcDir}" | sed 's/^pvc-[a-f0-9-]*_//')
+
+        # RabbitMQ stores its users (including the operator-generated default
+        # user) in its Mnesia database. Restoring a prior deploy's data here
+        # resurrects stale credentials that no longer match the freshly
+        # generated galaxy-rabbitmq-server-default-user secret, which makes the
+        # Galaxy pods crashloop with AMQP AccessRefused. Because the Helm
+        # install blocks on those pods becoming ready, the playbook's
+        # post-install RabbitMQ credential sync never runs. RabbitMQ is a
+        # transient message bus, so never restore its data: always create a
+        # fresh directory so the broker re-seeds from the current secret.
+        case "${suffix}" in
+            *_persistence-galaxy-rabbitmq-server-server-*)
+                echo "Skipping data restore for RabbitMQ (transient state); creating fresh directory: ${absolutePath}"
+                mkdir -m 0777 -p "${absolutePath}"
+                exit 0
+                ;;
+        esac
+
+        if [ -n "${suffix}" ]; then
+            # Search for existing directory with same namespace_pvc-name suffix
+            existingDir=$(find "${baseDir}" -maxdepth 1 -type d -name "pvc-*_${suffix}" ! -name "${pvcDir}" 2>/dev/null | head -1)
+
+            if [ -n "${existingDir}" ] && [ -d "${existingDir}" ]; then
+                # Check if existing directory has data (more than just empty dir)
+                if [ "$(ls -A "${existingDir}" 2>/dev/null)" ]; then
+                    echo "Found existing data directory: ${existingDir}"
+                    echo "Creating symlink: ${absolutePath} -> ${existingDir}"
+                    ln -s "${existingDir}" "${absolutePath}"
+                    exit 0
+                fi
+            fi
+        fi
+
+        # No existing directory found, create new one
         mkdir -m 0777 -p ${absolutePath}
   teardown: |-
         #!/bin/sh
@@ -137,7 +179,14 @@ data:
             esac
         done
 
-        rm -rf ${absolutePath}
+        # If it's a symlink, just remove the symlink (preserve actual data)
+        if [ -L "${absolutePath}" ]; then
+            echo "Removing symlink only (preserving actual data): ${absolutePath}"
+            rm -f "${absolutePath}"
+        else
+            # Regular directory - remove it
+            rm -rf ${absolutePath}
+        fi
   helperPod.yaml: |-
         apiVersion: v1
         kind: Pod

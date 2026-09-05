@@ -1,3 +1,15 @@
+
+terra:
+  launch:
+    workspace: ""
+    namespace: ""
+    drsURL: ""
+    apiURL: ""
+
+image:
+  repository: quay.io/galaxyproject/galaxy-min
+  tag: "26.1-auto"
+
 ingress:
   enabled: true
   ingressClassName: ""
@@ -13,9 +25,9 @@ ingress:
 
 persistence:
   storageClass: nfs
-  size: 20Gi
 
 cvmfs:
+  deploy: false
   deployPostInstallFix: true
   cvmfscsi:
     cache:
@@ -32,7 +44,7 @@ cvmfs:
 
 postgresql:
   persistence:
-    storageClass: blockstorage
+    storageClass: postgres-storage
 
 rabbitmq:
   persistence:
@@ -42,22 +54,287 @@ configs:
   galaxy.yml:
     galaxy:
       enable_beta_gdpr: true
-      #require_login: true
-      # show_welcome_with_login: true
-      # allow_user_creation: false
       tus_upload_store: /galaxy/server/database/tmp/tus_upload_store
       # The URL linked by the "Galaxy/brand" text
       logo_url: https://anvil.terra.bio/#workspaces
       # The brand image source
-      logo_src: /static/images/galaxy_project_logo_white_square.png
+      logo_src: /static/images/galaxy-project-logo-white-square.png
       # The custom brand image source
-      logo_src_secondary: /static/images/anvilwhite.png
+      logo_src_secondary: /static/images/anvil-project-logo-white.png
       enable_quotas: true
+      single_user: default-user@galaxyproject.org
+      admin_users: default-user@galaxyproject.org
+      # Retry stat'ing job outputs before giving up: outputs written by a remote
+      # host (e.g. GCP Batch tasks, reached over NFS through an internal load
+      # balancer) can still read back stale/empty on the handler's own NFS
+      # client for a short window after the job reports done.
+      retry_job_output_collection: 3
+      # Galaxy's default is the core plugin alone, which records only slots,
+      # container and start/end epoch - no memory or CPU accounting. Adding
+      # cgroup gives per-job memory.peak and cpu.stat
+      # Inline rather than a job_metrics_conf file so no extra config file or
+      # pointer is needed; note this is ignored if job_metrics_config_file is
+      # ever set.
+      job_metrics:
+        - type: core
+        - type: cgroup
   job_conf.yml:
+    runners:
+      gcp_batch:
+        load: galaxy.jobs.runners.gcp_batch:GoogleCloudBatchJobRunner
+        workers: 4
+        # project_id, service_account_email, and custom_vm_image are injected by the
+        # playbook from gcp_project_id (auto-detected from the VM metadata, or set by
+        # Terra at launch), so the GCP project is not hardcoded here.
+        # Overridden by the region derived from the VM's zone, or by an explicit
+        # gcp_batch_region, when enable_gcp_batch is set
+        region: us-east4
+
+        # Network configuration (required for NFS access)
+        network: default
+        subnet: default
+
+        # Compute resources (defaults shown)
+        machine_type: n2-standard-4
+        vcpu: 1.0
+        memory_mib: 2048
+        boot_disk_size_gb: 100
+        boot_disk_type: pd-standard
+
+        # Container settings
+        use_container: true
+        # Note: container_image comes from tool requirements via Galaxy's container finder
+        galaxy_user_id: 10001
+        galaxy_group_id: 10001
+        docker_extra_volumes: "/cvmfs/data.galaxyproject.org:/cvmfs/data.galaxyproject.org:ro,/cvmfs/cloud.galaxyproject.org:/cvmfs/cloud.galaxyproject.org:ro"
+
+        # custom_vm_image (projects/<gcp_project_id>/global/images/<gcp_batch_vm_image>)
+        # is injected by the playbook; update gcp_batch_vm_image to change the image.
+        # Job execution settings
+        max_retry_count: 3
+        # Max time a job will run before being deleted. Must be in seconds (end with 's'). Default 24hrs.
+        max_run_duration: 86400s
+        polling_interval: 30
+        delete_completed_jobs: false # Not available until 26.1 (is in v26.1-auto images)
+      local:
+        load: galaxy.jobs.runners.local:LocalJobRunner
+        workers: 3
+    execution:
+      default: tpv_dispatcher
+      environments:
+        local:
+          runner: local
+        gcp_batch:
+          runner: gcp_batch
+    destinations:
+      - id: gcp_batch_default
+        runner: gcp_batch
+      - id: k8s_default
+        runner: k8s
+      - id: local_default
+        runner: local
+    tools:
+      - environment: local
+        id: upload1
+      - environment: local
+        id: __DATA_FETCH__
+      - environment: local
+        id: __EXPORT_HISTORY__
+      - environment: local
+        id: __EXPORT_HISTORY_TO_URI__
+      - environment: local
+        id: __IMPORT_HISTORY__
+      - environment: local
+        id: __SET_METADATA__
+      - environment: local
+        id: __EXTRACT_DATASET__
+      # Route interactive tools to Kubernetes
+      - environment: local
+        id: interactive_tool.*
+      # Route data source tools to Kubernetes
+      - environment: local
+        id: .*data_source.*
+      # Keep workflows internal to cluster
+      - environment: local
+        id: __EXPORT_WORKFLOW__
+      - environment: local
+        id: __IMPORT_WORKFLOW__
+      - environment: local
+        id: random_lines1
+      # Expression/param tools must run locally — TPV additive tag merge
+      # with the global DB causes reject:[local] to persist even when
+      # overridden, so route them here before TPV is consulted.
+      - environment: local
+        id: compose_text_param
+      - environment: local
+        id: map_param_value
+      - environment: local
+        id: param_value_from_file
     limits:
       - type: total_walltime
         window: 1  # number in days
-        value: '24:00:00'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
+        value: '96:00:00'  # total walltime in HH:MM:SS that all jobs cannot exceed or add'l jobs won't run
+  file_sources_conf.yml:
+    - doc: "{{ .Values.terra.launch.workspace }}"
+      id: terra-launch-workspace
+      workspace: "{{ .Values.terra.launch.workspace }}"
+      namespace: "{{ .Values.terra.launch.namespace }}"
+      type: anvil
+      on_anvil: True
+      writable: True
+      api_url: "{{ .Values.terra.launch.apiURL }}"
+      drs_url: "{{ .Values.terra.launch.drsURL }}"
+
+    - type: ftp
+      id: ebi-ftp
+      label: "EBI FTP server"
+      doc: "European Bioinformatic Institute FTP server"
+      host: "ftp.ebi.ac.uk"
+      user: "anonymous"
+      passwd: ""
+      timeout: 10
+      port: 21
+
+    - type: ftp
+      id: covid-monitoring
+      label: "SARS-CoV-2 result files"
+      doc: "SARS-CoV-2 variants and consensus sequences"
+      host: "xfer13.crg.eu"
+      user: "anonymous"
+      passwd: ""
+      timeout: 10
+      port: 21
+
+    - type: ftp
+      id: ncbi-ftp
+      label: "NCBI FTP server"
+      doc: "NCBI FTP server"
+      host: "ftp.ncbi.nlm.nih.gov"
+      user: "anonymous"
+      passwd: ""
+      timeout: 10
+      port: 21
+
+    - type: ftp
+      id: ensembl-ftp
+      label: "ENSEMBL FTP server"
+      doc: "ENSEMBL FTP server"
+      host: "ftp.ensemblgenomes.org/vol1/pub/"
+      user: "anonymous"
+      passwd: ""
+      timeout: 10
+      port: 21
+
+    - type: s3fs
+      label: Genome Ark
+      id: genomeark
+      doc: Access to Genome Ark open data on AWS.
+      bucket: genomeark
+      anon: true
+
+    - type: s3fs
+      label: 1000 Genomes
+      id: 1000genomes
+      doc: Access to the 1000 Genomes Project with human genetic variation, including SNPs, structural variants, and their haplotype context.
+      bucket: 1000genomes
+      anon: true
+
+    - type: s3fs
+      label: The Cancer Genome Atlas
+      id: tcga-2-open
+      doc: Access to the Cancer Genome Atlas (TCGA)
+      bucket: tcga-2-open
+      anon: true
+
+    - type: s3fs
+      label: COVID-19 Data Lake
+      id: covid19-lake
+      doc: A centralized repository of up-to-date and curated datasets on or related to the spread and characteristics of the novel corona virus (SARS-CoV-2) and its associated illness, COVID-19
+      bucket: covid19-lake
+      anon: true
+
+    - type: s3fs
+      label: Encyclopedia of DNA Elements (ENCODE)
+      id: encode-public
+      doc: The Encyclopedia of DNA Elements (ENCODE) Consortium is an international collaboration of research groups funded by the National Human Genome Research Institute (NHGRI)
+      bucket: encode-public
+      anon: true
+
+    - type: s3fs
+      label: Coupled Model Intercomparison Project 6
+      id: esgf-world
+      doc: The sixth phase of global coupled ocean-atmosphere general circulation model ensemble
+      bucket: esgf-world
+      anon: true
+
+    - type: s3fs
+      label: CMIP6 GCMs downscaled using WRF
+      id: wrf-cmip6-noversioning
+      doc: High-resolution historical and future climate simulations from 1980-2100
+      bucket: wrf-cmip6-noversioning
+      anon: true
+
+    - type: s3fs
+      label: GBIF European region public datasets
+      id: gbif-open-data-eu-central-1
+      doc: The Global Biodiversity Information Facility is an international network and data infrastructure aimed at providing anyone, anywhere, open access to data about all types of life on Earth.
+      bucket: gbif-open-data-eu-central-1
+      anon: true
+
+jobs:
+   rules:
+    tpv_rules_local.yml:
+      destinations:
+        k8s:
+          max_accepted_cores: 1
+          max_accepted_mem: 4
+          scheduling:
+            prefer:
+              - small-job
+        gcp_batch:
+          runner: gcp_batch
+          params:
+            docker_enabled: "true"
+            cores: "{cores}"
+            mem: "{mem}"
+            job_id_prefix: galaxy-batch
+      tools:
+        default:
+          scheduling:
+            prefer:
+              - small-job
+          # No `rules:` here on purpose. Helm replaces lists rather than
+          # merging them, so re-stating tools.default.rules would shadow the
+          # chart's own force_default_container_for_built_in_tools rule
+          # (galaxy-helm galaxy/values.yaml) instead of adding to it.
+
+# Prepended to the startup command of every Galaxy pod, so the limit is
+# inherited by the Galaxy process and everything it forks.
+#
+# The local job runner forks the handler and the child sometimes dies on
+# SIGABRT before it can exec the job script (galaxyproject/galaxy#17773).
+# Because that child still carries the handler's memory image, each crash
+# writes a ~1.8 GB core into the job working directory. With cleanup_job set
+# to anything but `always` those cores are retained, and they fill the disk
+# fast - 16 of them took 28 GB in half an hour on a test run.
+#
+# This suppresses the dumps, not the crash. Note it also removes the only
+# record that the job died from a signal, since the runner discards the
+# process exit status (galaxyproject/galaxy#23410) and the script never runs
+# far enough to write an exit-code file. Drop this line temporarily if a core
+# is ever needed for a backtrace.
+extraInitCommands: |
+  ulimit -c 0
+
+extraVolumes:
+  - name: static-images
+    configMap:
+      name: galaxy-static-images
+
+extraVolumeMounts:
+  - name: static-images
+    mountPath: /galaxy/server/static/images
+    readOnly: true
 
 extraFileMappings:
   /galaxy/server/static/welcome.html:
@@ -89,3 +366,42 @@ extraFileMappings:
               </div>
           </body>
       </html>
+
+webHandlers:
+  resources:
+    requests:
+      cpu: 0.2
+  gunicorn:
+    timeout: 900             # 15 minutes!
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120    # 120 * 10 = 20 minutes!
+
+workflowHandlers:
+  resources:
+    requests:
+      cpu: 0.1
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120
+
+jobHandlers:
+  resources:
+    requests:
+      cpu: 0.4
+  startupProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 120
+
+nginx:
+  resources:
+    requests:
+      cpu: 0.05
+
+celery:
+  resources:
+    requests:
+      cpu: 0.05

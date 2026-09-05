@@ -4,28 +4,36 @@
 
 - name: Include system setup tasks
   ansible.builtin.include_tasks: system_setup.yml
-  when: setup_system | default(true)
+  when: setup_system | default(true) | bool
 
 - name: Include RKE2 cluster setup tasks
   ansible.builtin.include_tasks: rke2_setup.yml
-  when: setup_rke2 | default(true)
+  when: setup_rke2 | default(true) | bool
+
+- name: Include Helm repository setup tasks
+  ansible.builtin.include_tasks: helm_setup.yml
+  when: setup_helm | default(false) | bool
 
 - name: Include NFS storage setup tasks
   ansible.builtin.include_tasks: nfs_setup.yml
-  when: setup_nfs | default(true)
+  when: setup_nfs | default(true) | bool
 
 - name: Include Kubernetes storage setup tasks
   ansible.builtin.include_tasks: storage_setup.yml
-  when: setup_storage | default(true)
+  when: setup_storage | default(true) | bool
 
 - name: Include Kubernetes ingress setup tasks
   ansible.builtin.include_tasks: ingress_setup.yml
-  when: setup_ingress | default(true)
+  when: setup_ingress | default(true) | bool
 
 - name: Include Galaxy application setup tasks
   ansible.builtin.include_tasks: galaxy_application.yml
-  when: deploy_galaxy | default(false)
+  when: deploy_galaxy | default(false) | bool
 
 - name: Include Pulsar application setup tasks
   ansible.builtin.include_tasks: pulsar_application.yml
-  when: deploy_pulsar | default(false)
+  when: deploy_pulsar | default(false) | bool
+
+- name: Include Galaxy K8s Monitor setup tasks
+  ansible.builtin.include_tasks: monitor_application.yml
+  when: deploy_monitor | default(true) | bool

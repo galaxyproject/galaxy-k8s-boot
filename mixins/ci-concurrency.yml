@@ -1,0 +1,72 @@
+# Raises the gcp_batch job runner's handler-side dispatch/poll concurrency
+# from the default of 4. GCP Batch/quota itself isn't the constraint (each
+# job gets its own GCE VM); this setting is what actually limits how many
+# jobs Galaxy will have in flight to Batch at once, independent of how many
+# a test client submits concurrently. Tune to match --parallel-tests on
+# the galaxy-tool-test side.
+#
+# The local runner is raised alongside it, because it - not gcp_batch - is
+# what actually gates a tool-test run. Every test has to stage its inputs
+# before its tool job can be submitted, and the job_conf in values.yml
+# routes all of that to `local`: __DATA_FETCH__, upload1, __SET_METADATA__,
+# __EXPORT_HISTORY__, __IMPORT_HISTORY__, __EXTRACT_DATASET__, interactive
+# tools and .*data_source.*. At the stock 3 workers that's a 3-slot gate in
+# front of a 32-slot Batch pool.
+# Custom build carrying the not-yet-merged GCP Batch job-state fix
+# (galaxy/pull/23467) - the runner was committing state `ok` before
+# finish_job wrote outputs, the single largest cause of failures in this
+# harness. Revert to a stock v26.1.yml/dev.yml image once that PR merges.
+image:
+  repository: quay.io/galaxyproject/galaxy-min
+  tag: "26.1-batch-fix"
+
+configs:
+  job_conf.yml:
+    runners:
+      gcp_batch:
+        workers: 40
+      local:
+        workers: 12
+  galaxy.yml:
+    galaxy:
+      # Galaxy's stock DB pool (size 5 + overflow 10 = 15 connections) was
+      # sized for a single interactive user, not a CI client hammering one
+      # galaxy-web pod. It was never the bottleneck while galaxy-tests'
+      # anvil-test.yaml ran each tool's own test cases with
+      # --parallel-tests 1 (one worker, one tool, one test case in flight
+      # at a time) - only the outer 32-way *tool* concurrency touched the
+      # web pod at once. Bumping that inner flag to 4 (see galaxy-tests'
+      # "Parallelize a tool's own test cases too") multiplies the client's
+      # simultaneous job-status/staging requests by up to 4x on top of
+      # that, and confirmed live (galaxy-tests run 260830-115517): the
+      # stock pool exhausted within minutes - sqlalchemy.exc.TimeoutError:
+      # QueuePool limit of size 5 overflow 10 reached, 926 occurrences in
+      # one run, zero in every run before that change - surfacing to the
+      # client as malformed/empty API responses ("Input staging problem":
+      # JSONDecodeError) that galaxy-tool-test counts as tool errors, not
+      # infrastructure failures. 20+60=80 gives headroom for the worst
+      # case (32 tool workers x 4 parallel test cases = 128 concurrent
+      # client-side operations) without every one of them needing to hold
+      # a DB connection simultaneously. Revisit if QueuePool timeouts
+      # reappear in galaxy-web.log at a higher --parallel-tests value.
+      database_engine_option_pool_size: 20
+      database_engine_option_max_overflow: 60
+
+# Local-runner jobs execute *inside* the job handler pod, so they draw on
+# that pod's memory allowance rather than the node's directly - which makes
+# `limits.memory` the real ceiling on how many can run at once, not vCPU
+# count. galaxy-helm ships 7G, sized for a handler that dispatches rather
+# than one running a dozen concurrent uploads; raising local.workers 4x
+# without raising it risks trading a queueing bottleneck for an OOMKill.
+#
+# That matters here because an OOMKill in that cgroup is indistinguishable
+# from the intermittent __DATA_FETCH__ failures already seen in this
+# harness: the job dies with `exit_code: None, stderr: .`, no traceback,
+# hitting a different random handful of tools each run. 12G on a
+# t2d-standard-16 (64G) is cheap insurance; if that failure mode persists
+# after this change, the handler pod's restart count and
+# lastState.terminated.reason are the first things to check.
+jobHandlers:
+  resources:
+    limits:
+      memory: 12G
