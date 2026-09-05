@@ -12,6 +12,14 @@
 # __EXPORT_HISTORY__, __IMPORT_HISTORY__, __EXTRACT_DATASET__, interactive
 # tools and .*data_source.*. At the stock 3 workers that's a 3-slot gate in
 # front of a 32-slot Batch pool.
+# Custom build carrying the not-yet-merged GCP Batch job-state fix
+# (galaxy/pull/23467) - the runner was committing state `ok` before
+# finish_job wrote outputs, the single largest cause of failures in this
+# harness. Revert to a stock v26.1.yml/dev.yml image once that PR merges.
+image:
+  repository: quay.io/galaxyproject/galaxy-min
+  tag: "26.1-batch-fix"
+
 configs:
   job_conf.yml:
     runners:
