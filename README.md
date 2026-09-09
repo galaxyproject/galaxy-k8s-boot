@@ -64,6 +64,20 @@ for a given account.
    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
      --member="serviceAccount:galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com" \
      --role="roles/iam.serviceAccountUser"
+
+   # The Batch VM agent authenticates as this service account to report task
+   # status back to batch.googleapis.com. Without this role the agent starts
+   # but cannot phone home, and every job fails after ~18 minutes with
+   # "no VM has agent reporting correctly within the time window".
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com" \
+     --role="roles/batch.agentReporter"
+
+   # Batch VMs write job logs to Cloud Logging as this service account. Without
+   # this role jobs still run, but no logs appear in the GCP Batch console.
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:galaxy-batch-runner@anvil-and-terra-development.iam.gserviceaccount.com" \
+     --role="roles/logging.logWriter"
    ```
 
 2. **Firewall Rules**: Ensure GCP Batch VMs can access the NFS server:
