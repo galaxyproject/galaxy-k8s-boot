@@ -36,36 +36,30 @@ configs:
         workers: 12
   galaxy.yml:
     galaxy:
-      # Galaxy's stock DB pool (size 5 + overflow 10 = 15 connections) was
-      # sized for a single interactive user, not a CI client hammering one
-      # galaxy-web pod. It was never the bottleneck while galaxy-tests'
-      # anvil-test.yaml ran each tool's own test cases with
-      # --parallel-tests 1 (one worker, one tool, one test case in flight
-      # at a time) - only the outer 32-way *tool* concurrency touched the
-      # web pod at once. Bumping that inner flag to 4 (see galaxy-tests'
-      # "Parallelize a tool's own test cases too") multiplies the client's
-      # simultaneous job-status/staging requests by up to 4x on top of
-      # that, and confirmed live (galaxy-tests run 260830-115517): the
-      # stock pool exhausted within minutes - sqlalchemy.exc.TimeoutError:
-      # QueuePool limit of size 5 overflow 10 reached, 926 occurrences in
-      # one run, zero in every run before that change - surfacing to the
-      # client as malformed/empty API responses ("Input staging problem":
-      # JSONDecodeError) that galaxy-tool-test counts as tool errors, not
-      # infrastructure failures. 20+60=80 gave headroom for the worst
-      # case at the time (32 tool workers x 4 parallel test cases = 128
-      # concurrent client-side operations) without every one of them
-      # needing to hold a DB connection simultaneously.
+      # The stock pool (5+10) is sized for one interactive user, not a CI
+      # client driving 60 tool workers x 4 parallel test cases at a single
+      # galaxy-web pod. It must be raised - but only in step with Postgres,
+      # because the ceiling is per Galaxy *process* and two of them hold
+      # pools (galaxy-web and the job handler).
       #
-      # Raised to 30+120=150 alongside --parallel-tests going from 32 to
-      # 60 (see gcp_batch.workers above for why) - same headroom ratio
-      # against the new worst case (60 x 4 = 240 concurrent client-side
-      # operations). Revisit if QueuePool timeouts reappear in
-      # galaxy-web.log at a higher --parallel-tests value, and check
-      # Postgres's own max_connections comfortably clears 150 plus
-      # whatever else (other pods, admin connections) shares that
-      # instance.
-      database_engine_option_pool_size: 30
-      database_engine_option_max_overflow: 120
+      # Too small and requests queue past pool_timeout:
+      #   sqlalchemy.exc.TimeoutError: QueuePool limit ... reached
+      # Too large and connections fail on creation instead:
+      #   FATAL: remaining connection slots are reserved for roles with
+      #          the SUPERUSER attribute
+      #
+      # Both reach the client the same way - a plain-text 500 that
+      # galaxy-tool-test reports as JSONDecodeError, and counts as a tool
+      # error rather than an infrastructure failure.
+      #
+      # 20+60 = 80 per process, 160 for both, against max_connections 200
+      # (see postgresql below): ~37 slots spare for CNPG monitoring and
+      # admin sessions. Postgres holds shared_buffers plus roughly work_mem
+      # per backend, so 200 fits the chart's 2Gi pod limit; 400 would not.
+      #
+      # Raise both together or neither.
+      database_engine_option_pool_size: 20
+      database_engine_option_max_overflow: 60
 
 # Local-runner jobs execute *inside* the job handler pod, so they draw on
 # that pod's memory allowance rather than the node's directly - which makes
@@ -85,3 +79,15 @@ jobHandlers:
   resources:
     limits:
       memory: 12G
+
+# Paired with the DB pool above - the ceiling across galaxy-web and the job
+# handler has to fit inside max_connections, less the 3 slots Postgres
+# reserves for superusers. CNPG defaults to 100, which two 80-connection
+# pools overrun. galaxy-helm has no dedicated key, so this goes through the
+# Cluster spec passthrough.
+postgresql:
+  operator:
+    operatorSpecExtra:
+      postgresql:
+        parameters:
+          max_connections: "200"
