@@ -101,28 +101,40 @@ postgresql:
 # runner's forked child aborts before it execs the job script. The job ends
 # with exit_code NULL, no stderr and an empty outputs/, which Galaxy reports
 # as "Unable to finish job" - masking the real cause (see galaxyproject/
-# galaxy#23408). Roughly 1 in 150 local-runner jobs, clustered while many
-# workers fork concurrently early in a run.
+# galaxy#23408). Historically ~1 in 150 local-runner jobs, clustered while
+# many workers fork concurrently early in a run.
 #
 # The runner passes preexec_fn=os.setpgrp to Popen, which runs Python in the
 # child between fork and exec. Python documents that as unsafe in a threaded
 # process - after fork the child may only call async-signal-safe functions -
 # and this handler forks from worker threads: 84 threads and 235 mapped
-# native libraries, measured on the deployment on 2026-09-15. process_group=0
-# (Python 3.11+, and the image ships 3.12) performs the same setpgid in C,
-# with no Python running in the child. The file below is the image's own
-# local.py with that one change; the old path is kept for Python 3.10.
+# native libraries, measured on the deployment on 2026-09-15.
 #
-# Unproven. A standalone reproducer could not provoke the abort in 8,000
-# launches across both variants, so the evidence is circumstantial and this
-# deployment is the only place it can be evaluated. A clean run is suggestive
-# rather than conclusive at a 1-in-150 base rate.
+# start_new_session=True asks subprocess for the same thing without running
+# Python in the child: it is handed to _posixsubprocess.fork_exec and done in
+# C. It calls setsid() rather than setpgrp(), so the child is the leader of a
+# new session as well as a new process group - PGID == PID either way, which
+# is all check_pg/kill_pg use. The extra session is harmless here: job scripts
+# are non-interactive with their output already redirected to files.
+#
+# Chosen over process_group=0 (which this file carried on 2026-09-15) because
+# process_group needs Python 3.11 and Galaxy supports 3.10, so that version
+# needed a branch and left 3.10 on the buggy path. start_new_session has been
+# available since Python 3.2, so one line covers every supported version - and
+# it is what we would propose upstream.
+#
+# Evidence: run 260916 carried process_group=0 and logged 1,380 local-runner
+# forks with zero failures, against ~9.2 expected at the historical rate
+# (p=0.0001). start_new_session was then verified on the ea-dev deployment:
+# 60/60 jobs ok, correct PGID==PID isolation, and Galaxy's own kill_pg killing
+# a 3-process job tree with check_pg flipping correctly. Equivalence is
+# established; the per-night failure statistics were gathered on the other
+# variant.
 #
 # PINNED TO ONE IMAGE. This is the copy from galaxy-min:26.1-auto-0915
 # (244 lines, md5 001ecf77397717d45bdc38fdf813a46f before the change), which is
 # why the tag at the top of this file is fixed. On an image bump: re-extract
 # that file, re-apply the single hunk, update both the tag and this note.
-# Verified byte-identical to the pinned image on 2026-09-15.
 #
 # To end the experiment, delete this block and unpin the tag above.
 extraFileMappings:
@@ -145,7 +157,6 @@ extraFileMappings:
       import logging
       import os
       import subprocess
-      import sys
       import tempfile
       import threading
       from time import sleep
@@ -237,26 +248,19 @@ extraFileMappings:
                   stdout_file = tempfile.NamedTemporaryFile(mode="wb+", suffix="_stdout", dir=job_wrapper.working_directory)
                   stderr_file = tempfile.NamedTemporaryFile(mode="wb+", suffix="_stderr", dir=job_wrapper.working_directory)
                   log.debug(f"({job_id}) executing job script: {job_file}")
-                  # Put the child in its own process group, so it is the root of its
-                  # own group rather than joining Galaxy's.
-                  #
-                  # process_group=0 does this in C between fork and exec. The
-                  # equivalent preexec_fn=os.setpgrp runs Python there instead, which
-                  # Python documents as unsafe in a threaded process: after fork the
-                  # child may only call async-signal-safe functions, and this handler
-                  # forks from a pool of worker threads. process_group needs 3.11.
-                  popen_kwds = dict(
+                  # start_new_session makes the child the root of its own process
+                  # group (setsid, so PGID == PID), which is what check_pg/kill_pg
+                  # need. It is done in C between fork and exec; the equivalent
+                  # preexec_fn=os.setpgrp runs Python there instead, which is unsafe
+                  # in a threaded process and is what this replaces.
+                  proc = subprocess.Popen(
                       args=[job_file],
                       cwd=job_wrapper.working_directory,
                       stdout=stdout_file,
                       stderr=stderr_file,
                       env=self._environ,
+                      start_new_session=True,
                   )
-                  if sys.version_info >= (3, 11):
-                      popen_kwds["process_group"] = 0
-                  else:
-                      popen_kwds["preexec_fn"] = os.setpgrp
-                  proc = subprocess.Popen(**popen_kwds)
 
                   # Add custom attribute to track if the job was terminated by a shutdown
                   proc.terminated_by_shutdown = False  # type: ignore[attr-defined]
