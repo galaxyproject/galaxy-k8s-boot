@@ -22,3 +22,4 @@ gcp.pem
 opencode.json
 sqz.mdc
 sqz-compress.json
+*.pyc

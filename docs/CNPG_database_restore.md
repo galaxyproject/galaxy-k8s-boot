@@ -64,7 +64,9 @@ cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
 ```
 
 **Note:** The CNPG skip-initdb plugin is automatically deployed when restoration is enabled.
-The plugin automatically detects existing PostgreSQL data and skips initialization if found.
+The plugin skips initdb for the restored Cluster. The storage provisioner must
+independently reconnect the existing PostgreSQL data directory; the plugin does
+not discover or recover data for it.
 
 ### Example Deployment Commands
 
@@ -80,6 +82,39 @@ ansible-playbook -i inventories/my-server.ini playbook.yml \
   --extra-vars "galaxy_user=admin@example.com" \
   --extra-vars "restore_galaxy=true"
 ```
+
+### Selecting retained Galaxy data
+
+Restore discovery accepts both Galaxy dataset layouts: `objects/` and `files/`.
+It does not rename either directory. This preserves compatibility with charts
+that pre-created `files/` and with charts that default new installations to
+`objects/`. The directory name is not cosmetic: Galaxy addresses datasets by
+database ID under `files/` and by UUID under `objects/`, so renaming a retained
+directory orphans every dataset it holds.
+
+Selection uses an explicit `restore_galaxy_pvc_uuid` when supplied, otherwise
+the currently bound Galaxy PVC, otherwise the sole matching directory on the
+retained NFS disk. A directory containing both folders counts as one candidate.
+Unrelated local-path directories (such as RabbitMQ) are excluded.
+
+If a previous failed restore left multiple Galaxy directories on a rebuilt
+cluster, select the intended UUID (without the `pvc-` prefix):
+
+```bash
+ansible-playbook -i inventories/my-server.ini playbook.yml \
+  -e restore_galaxy=true \
+  -e restore_galaxy_pvc_uuid=11111111-1111-4111-8111-111111111111
+```
+
+The UUID selects Galaxy's NFS data only; PostgreSQL must also use its
+corresponding retained disk. An explicit UUID cannot switch a currently bound
+PVC to another volume. Resolve the existing deployment first if such a switch is
+intended.
+
+When restore is requested, missing or ambiguous data, failed NFS access, or
+failed PVC binding stops deployment. It never silently falls back to a fresh
+install. An existing Helm-managed PVC remains in the release manifest on reruns;
+newly restored static claims are passed through `persistence.existingClaim`.
 
 ### Using the VM Launch Script
 
@@ -116,14 +151,16 @@ This ensures the new PVC points to existing PostgreSQL data.
 ### CNPG Plugin Behavior
 
 The skip-initdb plugin is deployed automatically when restoration is enabled (`restore_galaxy` is set to true).
-The plugin uses **auto-detection**:
+1. Plugin deploys to `galaxy-deps` namespace (same as CNPG operator).
+2. Registers with CNPG via service annotations.
+3. The Galaxy chart references it in the PostgreSQL Cluster's `spec.plugins`.
+4. The plugin replaces the Cluster's initdb Job with a no-op, allowing
+   PostgreSQL to start with existing data.
 
-1. Plugin deploys to `galaxy-deps` namespace (same as CNPG operator)
-2. Registers with CNPG via service annotations
-3. When CNPG attempts to create the initdb Job, the plugin intercepts it
-4. Plugin checks if `$PGDATA` directory contains existing database files:
-   - **If PGDATA has database files**: Plugin replaces the initdb Job with a no-op, allowing PostgreSQL to start with existing data
-   - **If PGDATA is empty/missing**: Plugin allows normal initdb to proceed (graceful degradation)
+The plugin does not validate `$PGDATA` or initialize a fresh database when it is
+missing. Both the PostgreSQL disk and its original data directory must be
+available. `galaxy-deps` installs the operator; the Galaxy chart creates the
+database Cluster.
 
 **IMPORTANT**: The plugin MUST be deployed to the same namespace as the CNPG operator. In Galaxy deployments, the CNPG operator runs in the `galaxy-deps` namespace (installed by the galaxy-deps Helm chart). Deploying the plugin to a different namespace (like `cnpg-system`) will result in CNPG not discovering the plugin.
 
@@ -309,7 +346,8 @@ The CNPG skip-initdb plugin is part of a larger persistent data reuse solution. 
 
 ### NFS Export Reuse
 When relaunching Galaxy instances, the NFS provisioner may report "insufficient space" even when existing data should be reused. The playbook automatically:
-- Detects existing Galaxy NFS exports (by checking for `objects` subdirectory)
+- Waits for the NFS pod to be Ready, then detects existing Galaxy NFS
+  directories containing either `objects/` or legacy `files/`
 - Creates a static PV pointing to the existing export
 - Binds the Galaxy PVC to the static PV
 

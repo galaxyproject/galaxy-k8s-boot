@@ -25,16 +25,41 @@
 # ============================================================================
 # Galaxy Data Restoration - Parse Mode
 # ============================================================================
-# Parse restoration mode EARLY so we can deploy CNPG plugin before galaxy-deps
+# Resolve restoration before creating any Galaxy application resources.
 
 - name: Display restoration mode
   debug:
-    msg: "Galaxy restoration mode: {{ 'Auto-detect and restore' if restore_galaxy else 'Fresh installation' }}"
+    msg: "Galaxy restoration mode: {{ 'Auto-detect and restore' if (restore_galaxy | bool) else 'Fresh installation' }}"
+
+- name: Discover existing Galaxy data before restoring
+  ansible.builtin.include_tasks: detect_galaxy_pvc.yml
+  when: restore_galaxy | bool
+
+- name: Restore Galaxy PVC from existing data
+  ansible.builtin.include_tasks: restore_galaxy_pvc.yml
+  when:
+    - restore_galaxy | bool
+    - not (galaxy_restore_has_existing_claim | bool)
+
+# A claim the release already owns stays in the chart manifest; only an
+# Ansible-managed static claim is handed to the chart as existingClaim.
+- name: Set Galaxy Helm values for restored storage
+  ansible.builtin.set_fact:
+    galaxy_helm_extra_sets: >-
+      {{ [] if (galaxy_restore_helm_managed_claim | bool)
+         else [{'value': 'persistence.existingClaim=galaxy-galaxy-pvc', 'value_type': 'string'}] }}
+  when: restore_galaxy | bool
+
+- name: Set Galaxy Helm values for fresh deployment
+  ansible.builtin.set_fact:
+    galaxy_helm_extra_sets: []
+  when: not (restore_galaxy | bool)
 
 # ============================================================================
 # CNPG Skip-Initdb Plugin Deployment
 # ============================================================================
-# CRITICAL: Deploy plugin BEFORE galaxy-deps (which creates PostgreSQL cluster)
+# Deploy the plugin before the Galaxy chart creates the PostgreSQL Cluster.
+# galaxy-deps installs the CNPG operator, not the database Cluster.
 # Plugin must be running to intercept CNPG's initdb request
 # As soon as the plugin is deployed, it does a no-op on initdb and allows PostgreSQL
 # to reuse existing data directories.
@@ -44,7 +69,7 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
     definition: "{{ lookup('template', 'templates/cnpg_skip_initdb_plugin.yaml.j2') }}"
-  when: restore_galaxy
+  when: restore_galaxy | bool
 
 - name: Wait for CNPG plugin pod to be ready
   kubernetes.core.k8s_info:
@@ -57,15 +82,18 @@
   register: plugin_pod
   until:
     - plugin_pod.resources | length > 0
-    - plugin_pod.resources[0].status.phase == "Running"
-  retries: 10
-  delay: 3
-  when: restore_galaxy
+    - >-
+      plugin_pod.resources[0].status.conditions | default([])
+      | selectattr('type', 'equalto', 'Ready')
+      | selectattr('status', 'equalto', 'True') | list | length > 0
+  retries: 60
+  delay: 5
+  when: restore_galaxy | bool
 
 - name: Display CNPG plugin status
   debug:
     msg: "CNPG skip-initdb plugin deployed. Plugin will skip initdb."
-  when: restore_galaxy
+  when: restore_galaxy | bool
 - name: Ensure CNPG plugin is NOT deployed in fresh install mode
   kubernetes.core.k8s:
     state: absent
@@ -74,7 +102,7 @@
     name: skip-initdb
     namespace: "{{ cnpg_skip_initdb_namespace }}"
     kubeconfig: "{{ kubeconfig_path }}"
-  when: not restore_galaxy
+  when: not (restore_galaxy | bool)
 
 - name: Helm install galaxy-deps
   kubernetes.core.helm:
@@ -83,93 +111,6 @@
     chart_ref: "{{ galaxy_deps_chart }}"
     chart_version: "{{ galaxy_deps_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
-
-# ============================================================================
-# Galaxy Data Restoration - Determine PVC UUID
-# ============================================================================
-# Restoration mode already parsed above. Now determine specific PVC UUID.
-
-- name: Auto-detect Galaxy PVC UUID from NFS exports
-  shell: |
-    # Note: glob must be expanded inside container, so we use sh -c
-    for dir in $(kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
-      sh -c 'ls -d /export/pvc-* 2>/dev/null'); do
-      # Check if this looks like a Galaxy data directory (has objects/ subdirectory)
-      if kubectl exec -n {{ nfs_provisioner_namespace }} {{ nfs_provisioner_pod_name }} -- \
-        test -d "$dir/objects" 2>/dev/null; then
-        # Extract UUID from path: /export/pvc-<uuid>
-        basename "$dir" | sed 's/^pvc-//'
-        exit 0
-      fi
-    done
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
-  register: auto_detected_uuid
-  ignore_errors: true
-  when: restore_galaxy
-
-- name: Set auto-detected PVC UUID
-  set_fact:
-    detected_galaxy_pvc_uuid: "{{ auto_detected_uuid.stdout | trim }}"
-  when:
-    - restore_galaxy
-    - auto_detected_uuid.stdout is defined
-    - auto_detected_uuid.stdout | trim != ''
-
-- name: Display determined PVC UUID
-  debug:
-    msg: "Using Galaxy PVC UUID: {{ detected_galaxy_pvc_uuid }}"
-  when:
-    - restore_galaxy
-    - detected_galaxy_pvc_uuid is defined
-    - detected_galaxy_pvc_uuid != ''
-
-- name: Warn if auto-detection failed
-  debug:
-    msg: "WARNING: restore_galaxy=true but no existing PVC found in NFS exports. Falling back to fresh installation."
-  when:
-    - restore_galaxy
-    - detected_galaxy_pvc_uuid is not defined or detected_galaxy_pvc_uuid == ''
-
-# Step 2: Restore Galaxy PVC if UUID determined
-- name: Restore Galaxy PVC from existing data
-  block:
-    - name: Set restore_galaxy_pvc_uuid for include
-      set_fact:
-        restore_galaxy_pvc_uuid: "{{ detected_galaxy_pvc_uuid }}"
-
-    - name: Include Galaxy PVC restoration tasks
-      ansible.builtin.include_tasks: restore_galaxy_pvc.yml
-
-    - name: Set Galaxy Helm values for restore mode
-      set_fact:
-        galaxy_helm_extra_sets:
-          - value: "galaxy.persistence.existingClaim=galaxy-galaxy-pvc"
-            value_type: string
-          - value: "galaxy.persistence.storageClass="
-            value_type: string
-
-  rescue:
-    - name: Log restoration failure
-      debug:
-        msg: |
-          WARNING: Galaxy PVC restoration failed. Falling back to fresh deployment.
-          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
-
-    - name: Clear restore variables to trigger fresh deployment
-      set_fact:
-        detected_galaxy_pvc_uuid: ""
-        galaxy_helm_extra_sets: []
-
-  when:
-    - restore_galaxy
-    - detected_galaxy_pvc_uuid is defined
-    - detected_galaxy_pvc_uuid != ''
-
-- name: Set Galaxy Helm values for fresh deployment
-  set_fact:
-    galaxy_helm_extra_sets: []
-  when: not restore_galaxy or detected_galaxy_pvc_uuid | default('') == ''
 
 # ============================================================================
 # GCP Batch: NFS Server Configuration
@@ -460,7 +401,7 @@
     update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
     timeout: "20m0s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_network if (enable_gcp_batch | default(false) | bool and gcp_batch_network | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_subnet if (enable_gcp_batch | default(false) | bool and gcp_batch_subnet | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_forwarded_proto if (ingress_use_forwarded_headers | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy and detected_galaxy_pvc_uuid | default('') != '') else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_network if (enable_gcp_batch | default(false) | bool and gcp_batch_network | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_subnet if (enable_gcp_batch | default(false) | bool and gcp_batch_subnet | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_forwarded_proto if (ingress_use_forwarded_headers | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy | bool) else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
   vars:
     _helm_prefix_sets:
