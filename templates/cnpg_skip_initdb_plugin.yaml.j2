@@ -108,9 +108,13 @@ spec:
         - mountPath: /client
           name: client
         resources:
+          # The plugin only does work while CNPG bootstraps the Cluster, but it
+          # stays deployed for the life of a restored instance. A request large
+          # enough to matter comes straight out of the budget Galaxy job pods
+          # schedule against, and a single node has little to spare.
           requests:
             memory: "64Mi"
-            cpu: "100m"
+            cpu: "10m"
           limits:
             memory: "128Mi"
             cpu: "500m"
