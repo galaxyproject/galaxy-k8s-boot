@@ -70,6 +70,13 @@ not discover or recover data for it.
 
 ### Example Deployment Commands
 
+When `restore_galaxy=true`, the playbook overrides `postInstallJob.enabled=false`,
+even if an import profile enables it. The retained database already contains the
+imported histories, datasets, and workflows. A new Helm release on a rebuilt
+cluster would otherwise execute the chart's `post-install` hook again. Fresh
+installations continue to honor the configured profile. Ordinary pod/VM restarts
+and Helm upgrades of an existing release do not trigger this hook.
+
 **Fresh installation** (default behavior):
 ```bash
 ansible-playbook -i inventories/my-server.ini playbook.yml \

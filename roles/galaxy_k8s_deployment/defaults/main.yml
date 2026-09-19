@@ -176,6 +176,7 @@ galaxy_bootstrap_api_key: "galaxypassword"
 galaxy_infrastructure_url: ""
 # Profile values file(s) to pass to galaxy-helm's postInstallJob.imports.
 # Set to [] to disable post-install imports entirely.
+# Restore mode disables the post-install job to avoid importing duplicates.
 galaxy_import_profile:
   - "{{ role_path }}/files/profiles/anvil.yaml"
 galaxy_job_max_cores: 1
