@@ -110,6 +110,9 @@ cnpg_skip_initdb_plugin_name: "cnpg-i-skip-initdb.leonardoce.github.com"
 # Galaxy Restoration Control
 # When true, automatically detects and restores existing Galaxy PVC and database
 restore_galaxy: false
+# Optional UUID (without pvc-) to choose among multiple retained Galaxy volumes.
+# Otherwise reuse the bound Galaxy PVC, or require exactly one files/objects candidate.
+restore_galaxy_pvc_uuid: ""
 
 # Ingress Configuration
 ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table

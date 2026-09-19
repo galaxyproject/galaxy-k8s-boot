@@ -1,0 +1,113 @@
+---
+# Complete discovery before enabling database bootstrap or changing any claims.
+- name: Wait for the NFS provisioner to be ready for restore discovery
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ nfs_provisioner_namespace }}"
+    name: "{{ nfs_provisioner_pod_name }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: restore_nfs_pod
+  until:
+    - restore_nfs_pod.resources | length > 0
+    - >-
+      restore_nfs_pod.resources[0].status.conditions | default([])
+      | selectattr('type', 'equalto', 'Ready')
+      | selectattr('status', 'equalto', 'True') | list | length > 0
+  retries: 60
+  delay: 5
+
+- name: Find Galaxy data directories in NFS exports
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ kubeconfig_path }}"
+      - exec
+      - --namespace
+      - "{{ nfs_provisioner_namespace }}"
+      - "{{ nfs_provisioner_pod_name }}"
+      - --
+      - sh
+      - -c
+      - "{{ lookup('file', role_path ~ '/files/find_galaxy_data.sh') }}"
+  register: galaxy_data_discovery
+  changed_when: false
+
+- name: Inspect the existing Galaxy PVC
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    namespace: galaxy
+    name: galaxy-galaxy-pvc
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: restore_existing_pvc
+
+- name: Require an existing Galaxy claim to be bound
+  ansible.builtin.assert:
+    that:
+      - restore_existing_pvc.resources[0].status.phase | default('') == 'Bound'
+    fail_msg: >-
+      Galaxy already has an unbound PVC. Resolve it before restoring;
+      refusing to replace the claim or fall back to fresh installation.
+  when: restore_existing_pvc.resources | length > 0
+
+- name: Inspect the currently bound Galaxy volume
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolume
+    name: "{{ restore_existing_pvc.resources[0].spec.volumeName }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: restore_existing_pv
+  when: restore_existing_pvc.resources | length > 0
+
+- name: Collect restore candidates and current volume identity
+  ansible.builtin.set_fact:
+    galaxy_restore_candidates: "{{ galaxy_data_discovery.stdout_lines }}"
+    galaxy_restore_has_existing_claim: "{{ restore_existing_pvc.resources | length > 0 }}"
+    galaxy_restore_current_path: >-
+      {{ ((restore_existing_pv.resources | default([]) | first | default({})).get('spec', {}).get('nfs', {}).get('path', '')) }}
+
+- name: Select the explicit, currently bound, or sole Galaxy volume
+  ansible.builtin.set_fact:
+    detected_galaxy_pvc_uuid: >-
+      {{ restore_galaxy_pvc_uuid if (restore_galaxy_pvc_uuid | length > 0)
+         else (galaxy_restore_current_path | regex_replace('^/export/pvc-', ''))
+         if (galaxy_restore_has_existing_claim | bool)
+         else (galaxy_restore_candidates[0] if galaxy_restore_candidates | length == 1 else '') }}
+
+- name: Require an unambiguous existing Galaxy data directory
+  ansible.builtin.assert:
+    that:
+      - detected_galaxy_pvc_uuid | length > 0
+      - detected_galaxy_pvc_uuid in galaxy_restore_candidates
+      - not (galaxy_restore_has_existing_claim | bool) or galaxy_restore_current_path == '/export/pvc-' ~ detected_galaxy_pvc_uuid
+    fail_msg: >-
+      Cannot safely restore Galaxy. Candidates with objects/ or files/:
+      {{ galaxy_restore_candidates }}. Requested UUID: {{ restore_galaxy_pvc_uuid }}.
+      Currently bound path: {{ galaxy_restore_current_path }}.
+      For multiple candidates on a rebuilt cluster, set restore_galaxy_pvc_uuid
+      explicitly. An existing bound claim must agree with that selection.
+      Refusing to fall back to fresh installation.
+
+# Do not remove a Helm-managed PVC from an existing release's manifest: Helm
+# would delete it on upgrade. Newly restored static claims use existingClaim.
+- name: Inspect existing Helm PVC ownership
+  kubernetes.core.helm_info:
+    name: galaxy
+    release_namespace: galaxy
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: restore_existing_release
+  no_log: true
+  when: galaxy_restore_has_existing_claim | bool
+
+- name: Preserve Helm management of an existing Galaxy PVC
+  ansible.builtin.set_fact:
+    galaxy_restore_helm_managed_claim: >-
+      {{ (restore_existing_release.status | default({})).get('manifest', [])
+         | selectattr('kind', 'defined') | selectattr('kind', 'equalto', 'PersistentVolumeClaim')
+         | selectattr('metadata.name', 'equalto', 'galaxy-galaxy-pvc') | list | length > 0 }}
+
+- name: Display the selected Galaxy data directory
+  ansible.builtin.debug:
+    msg: "Restoring Galaxy data from /export/pvc-{{ detected_galaxy_pvc_uuid }}"
