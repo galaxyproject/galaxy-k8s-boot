@@ -408,6 +408,10 @@
       - value: "ingress.path={{ galaxy_prefix }}"
       - value: "ingress.hosts[0].paths[0].path={{ galaxy_prefix }}"
     _helm_values_base:
+      # Rebuilding a cluster creates a new Helm release and runs post-install
+      # hooks again. Restored databases already contain the profile's imports.
+      # An empty map leaves the values files in control on fresh installations.
+      postInstallJob: "{{ {'enabled': false} if (restore_galaxy | bool) else {} }}"
       persistence:
         size: "{{ galaxy_persistence_size }}"
       postgresql:
