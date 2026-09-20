@@ -178,6 +178,32 @@
         galaxy-project-logo-white-square.png: "{{ lookup('file', 'files/galaxy-project-logo-white-square.png') | b64encode }}"
         anvil-project-logo-white.png: "{{ lookup('file', 'files/anvil-project-logo-white.png') | b64encode }}"
 
+# Backs the galaxy-webhook-k8s-monitor volume mounted via values/values.yml's
+# extraVolumes/extraVolumeMounts. Created unconditionally, like the ConfigMap
+# above, so the mount always resolves regardless of deploy_monitor; when the
+# monitor isn't deployed the masthead icon just links to a 404 instead of
+# breaking the Galaxy pod's volume mount.
+- name: Create ConfigMap for the k8s-monitor masthead webhook
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-webhook-k8s-monitor
+        namespace: galaxy
+      data:
+        config.yml: |
+          id: k8s_monitor
+          type:
+            - masthead
+          activate: true
+          icon: fa-tachometer-alt
+          tooltip: K8s Monitor
+          function: >
+            window.open(window.location.origin + '{{ monitor_base_path }}', '_blank');
+
 # - name: Write Galaxy post-install user values
 #   ansible.builtin.copy:
 #     dest: /tmp/galaxy-postinstall-user.yaml
