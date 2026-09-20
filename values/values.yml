@@ -78,6 +78,12 @@ configs:
       job_metrics:
         - type: core
         - type: cgroup
+      # Adds a masthead icon that opens the galaxy-k8s-monitor dashboard
+      # (deployed alongside Galaxy by this playbook when deploy_monitor is
+      # true) in a new tab. The plugin directory is mounted from the
+      # galaxy-webhook-k8s-monitor ConfigMap; see extraVolumes/
+      # extraVolumeMounts below.
+      webhooks_dir: "config/plugins/webhooks,/galaxy/server/config/plugins/webhooks-custom"
   job_conf.yml:
     runners:
       gcp_batch:
@@ -330,10 +336,16 @@ extraVolumes:
   - name: static-images
     configMap:
       name: galaxy-static-images
+  - name: webhook-k8s-monitor
+    configMap:
+      name: galaxy-webhook-k8s-monitor
 
 extraVolumeMounts:
   - name: static-images
     mountPath: /galaxy/server/static/images
+    readOnly: true
+  - name: webhook-k8s-monitor
+    mountPath: /galaxy/server/config/plugins/webhooks-custom/k8s_monitor
     readOnly: true
 
 extraFileMappings:
