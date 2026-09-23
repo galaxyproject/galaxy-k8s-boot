@@ -520,6 +520,42 @@
             - name: "{{ cnpg_skip_initdb_plugin_name | default('cnpg-i-skip-initdb.leonardoce.github.com') }}"
 
 # ============================================================================
+# TEMPORARY DIAGNOSTICS: Terra bootstrap folder history import (gxabm#365)
+# ============================================================================
+# Remove once the failing __IMPORT_HISTORY__ job is understood. Runs before the
+# job handlers are restarted below, while their first-boot log still exists.
+# Everything printed here lands on the VM serial console, which is readable with
+# only compute.instances.get (no SSH or serviceAccountUser needed on Terra).
+- name: "DEBUG: collect post-install and job handler logs"
+  shell: |
+    echo "===== post-install job log ====="
+    kubectl -n galaxy logs job/galaxy-post-install --tail=400 2>&1 || true
+    for d in $(kubectl -n galaxy get deploy -o name 2>/dev/null | grep -E 'galaxy-job-[0-9]+$'); do
+      echo "===== $d log (Traceback / import history / job failures) ====="
+      kubectl -n galaxy logs "$d" --tail=20000 2>&1 \
+        | grep -iE -B3 -A30 'Traceback|IMPORT_HISTORY|history import|import_history|imp_exp|fail' \
+        | tail -400 || true
+    done
+    echo "===== failed Galaxy jobs (API) ====="
+    api="http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}/api"
+    ids=$(curl -sf -H "x-api-key: {{ galaxy_bootstrap_api_key }}" "$api/jobs?state=error&view=admin_job_list" \
+      | python3 -c 'import sys, json; print(" ".join(j["id"] for j in json.load(sys.stdin)))' 2>/dev/null)
+    for id in $ids; do
+      echo "----- job $id -----"
+      curl -sf -H "x-api-key: {{ galaxy_bootstrap_api_key }}" "$api/jobs/$id?full=true" || true
+      echo
+    done
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: _debug_bootstrap
+  changed_when: false
+  failed_when: false
+
+- name: "DEBUG: post-install and job handler logs"
+  debug:
+    msg: "{{ _debug_bootstrap.stdout_lines }}"
+
+# ============================================================================
 # GCP Batch: NFS Export Path Detection
 # ============================================================================
 - name: Wait for Galaxy PVC to be bound
