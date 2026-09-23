@@ -1,8 +1,10 @@
 postInstallJob:
   enabled: true
   galaxyUser: "default-user@galaxyproject.org"
+  image: quay.io/galaxyproject/abm:2.15.0-dev0
   bootstrapConfig: |
-    version: 1
+    terra:
+      bootstrap: galaxy-bootstrap
     datasets:
       "rnaseq-de":
         - "https://zenodo.org/records/13987631/files/Saccharomyces_cerevisiae.R64-1-1.113.gtf"
