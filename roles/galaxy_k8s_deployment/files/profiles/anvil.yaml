@@ -2,6 +2,7 @@ postInstallJob:
   enabled: true
   galaxyUser: "default-user@galaxyproject.org"
   image: quay.io/galaxyproject/abm:2.15.0-dev0
+  ttlSecondsAfterFinished: 86400
   bootstrapConfig: |
     terra:
       bootstrap: galaxy-bootstrap
