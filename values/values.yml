@@ -6,9 +6,15 @@ terra:
     drsURL: ""
     apiURL: ""
 
+# Galaxy 26.2.dev0 built from galaxy-dev branch anvil-test-2026-09 (Admin panel
+# extensions, GCP Batch warm VM pool and L4 GPU support). Pinned to an immutable
+# per-build tag: with imagePullPolicy IfNotPresent an overwritten rolling tag
+# is never re-pulled on an existing VM. This build's local job runner already
+# carries the galaxy#17773 fix, so the AnVIL profile must not mount the
+# release_26.1 local.py over it.
 image:
-  repository: quay.io/galaxyproject/galaxy-min
-  tag: "26.1-auto"
+  repository: ksuderman/galaxy-anvil-test
+  tag: "anvil-test-2026-09-a93ed58"
 
 ingress:
   enabled: true
@@ -53,6 +59,9 @@ rabbitmq:
 configs:
   galaxy.yml:
     galaxy:
+      # Admin panel extensions. config/plugins/admin ships only a .sample in the
+      # image; the custom dir is written by the extraFileMappings entry below.
+      admin_extensions_dir: "config/plugins/admin,/galaxy/server/config/plugins/admin-custom"
       enable_beta_gdpr: true
       enable_beta_tool_formats: true
       tus_upload_store: /galaxy/server/database/tmp/tus_upload_store
@@ -374,6 +383,95 @@ extraVolumeMounts:
     readOnly: true
 
 extraFileMappings:
+  # Admin panel extension: one "AnVIL" section. Galaxy loads every
+  # <admin_extensions_dir>/<id>/config.yml at startup. galaxy-web serves the API
+  # and renders the panel, but the job handlers must load the file too: the
+  # settings manager only honours keys declared by a loaded extension, so a
+  # handler without the file would ignore every value saved from the form and
+  # the GCP Batch runner would fall back to job_conf.yml. Relative URLs are
+  # resolved against Galaxy's root by the client, so /monitor becomes
+  # <galaxy_prefix>/monitor behind Leonardo too (it must match the role's
+  # monitor_base_path, which defaults to the same thing). Another values file
+  # can add its own section by mapping another admin-custom/<id>/config.yml;
+  # Helm merges these maps across -f files, unlike extraVolumes lists.
+  #
+  # The form inputs deliberately carry no `default:`. A declared default is
+  # applied by the runner exactly like a saved value, so it would silently
+  # override the job_conf.yml runner block on every deployment that loads this
+  # file (Terra launches land in whatever region the workspace is in). Without
+  # one, a key only takes effect once an admin saves it.
+  /galaxy/server/config/plugins/admin-custom/anvil/config.yml:
+    useSecret: false
+    applyToWeb: true
+    applyToJob: true
+    applyToWorkflow: false
+    applyToSetupJob: false
+    applyToNginx: false
+    tpl: false
+    content: |
+      id: anvil
+      section: AnVIL
+      items:
+        - id: monitor
+          type: link
+          title: Cluster Monitor
+          url: /monitor
+          target: iframe
+        - id: monitor_tab
+          type: link
+          title: Cluster Monitor (new tab)
+          url: /monitor
+          target: new_tab
+        # Runtime overrides for the GCP Batch runner. Each key is one the runner
+        # reads (gcp_batch.<runner param>); a saved value beats the runner-level
+        # value in job_conf.yml but not a destination-level param. Pool settings
+        # are fixed when a VM boots: a change affects VMs provisioned after the
+        # save, and VMs already running keep their values until they expire.
+        # Saved values persist across restarts and upgrades. An unsaved field
+        # leaves the job_conf.yml value in force.
+        - id: batch
+          type: form
+          title: GCP Batch Settings
+          description: >-
+            Overrides for jobs sent to GCP Batch. Empty fields keep the deployed
+            job_conf.yml values. Keep the job walltime well below the pooled VM
+            lifetime or VMs are never reused. Changes apply to VMs provisioned
+            after saving.
+          inputs:
+            - name: pool_enabled
+              key: gcp_batch.pool_enabled
+              type: boolean
+              label: Keep VMs warm between jobs
+              help: Reuse Batch VMs for follow-up jobs instead of provisioning one per job (deployed default off).
+            - name: pool_ttl_seconds
+              key: gcp_batch.pool_ttl_seconds
+              type: integer
+              label: Idle seconds before a warm VM shuts down
+              help: Longer keeps more jobs off the boot path; idle VMs bill the whole time (runner default 300).
+              min: 30
+              max: 3600
+            - name: pool_max_size
+              key: gcp_batch.pool_max_size
+              type: integer
+              label: Idle VMs kept per machine type
+              help: Per job handler. Running VMs are not counted (runner default 5).
+              min: 0
+              max: 20
+            - name: pool_max_vm_lifetime
+              key: gcp_batch.pool_max_vm_lifetime
+              type: text
+              label: Warm VM lifetime
+              help: Total lifetime of a warm VM across all its jobs, e.g. 24h or 6h (runner default 24h).
+            - name: max_run_duration
+              key: gcp_batch.max_run_duration
+              type: text
+              label: Job walltime
+              help: Longest a single job may run, e.g. 12h or 3600s. Must stay well below the warm VM lifetime (deployed default 86400s).
+            - name: allowed_locations
+              key: gcp_batch.allowed_locations
+              type: text
+              label: Allowed zones
+              help: Comma-separated zones of this deployment's Batch region that Batch may place VMs in, e.g. us-central1-a,us-central1-c. Empty lets Batch choose.
   /galaxy/server/static/welcome.html:
     applyToWeb: true
     applyToNginx: true
