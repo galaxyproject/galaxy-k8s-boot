@@ -1,0 +1,228 @@
+# Combined test deployment for three galaxy-dev features built into one image
+# (branch anvil-test-2026-09; see ANVIL_TEST_IMAGE_PLAN.md in galaxy-dev):
+#
+#   1. Admin panel extensions (link items) - a new "AnVIL" section in the Admin
+#      panel, defined by the extraFileMappings entry at the end of this file.
+#   2. Warm VM pool for the GCP Batch runner - VMs stay alive after a job and
+#      take follow-up jobs over the NFS handoff dir.
+#   3. L4 GPU jobs on GCP Batch - a gcp_batch_gpu destination that only accepts
+#      tools tagged gpu.
+#
+# Usage: bin/launch_vm.sh ... --values values/values.yml --values mixins/anvil-test.yml
+#
+# Do NOT combine with the AnVIL import profile (files/profiles/anvil.yaml):
+# that profile mounts a release_26.1 copy of the local job runner over the
+# job pods (galaxy#17773 workaround), which would revert the newer runner in
+# this dev-based image. bin/anvil.sh already launches with --profile ''.
+
+image:
+  repository: ksuderman/galaxy-anvil-test
+  # Immutable per-build tag (galaxy-dev anvil-test-2026-09 @ a93ed58). The
+  # rolling anvil-test-2026-09 tag bit us once: imagePullPolicy IfNotPresent
+  # kept serving a stale build after the tag was overwritten.
+  tag: "anvil-test-2026-09-a93ed58"
+
+configs:
+  galaxy.yml:
+    galaxy:
+      # config/plugins/admin ships only a .sample in the image; the custom dir
+      # is written by the extraFileMappings entry below.
+      admin_extensions_dir: "config/plugins/admin,/galaxy/server/config/plugins/admin-custom"
+  # Tools whose HTML outputs Galaxy renders instead of serving as text/plain
+  # (sanitize_all_html). Entries are tool-shed repo prefixes, so every version
+  # matches. A string value, so the chart's default list is restated here plus
+  # image_learner's Ludwig report. Seeded into config/mutable on a fresh disk
+  # only; Admin > Manage Allowlist edits the live copy on the data disk.
+  sanitize_allowlist.txt: |
+    toolshed.g2.bx.psu.edu/repos/bgruening/diff/
+    toolshed.g2.bx.psu.edu/repos/bgruening/pharmcat/
+    toolshed.g2.bx.psu.edu/repos/bgruening/plotly_parallel_coordinates_plot/
+    toolshed.g2.bx.psu.edu/repos/bgruening/plotly_regression_performance_plots/
+    toolshed.g2.bx.psu.edu/repos/crs4/taxonomy_krona_chart/
+    toolshed.g2.bx.psu.edu/repos/devteam/fastqc/
+    toolshed.g2.bx.psu.edu/repos/goeckslab/image_learner/
+    toolshed.g2.bx.psu.edu/repos/iuc/dexseq/
+    toolshed.g2.bx.psu.edu/repos/iuc/fastp/
+    toolshed.g2.bx.psu.edu/repos/iuc/jbrowse/
+    toolshed.g2.bx.psu.edu/repos/iuc/macs2/
+    toolshed.g2.bx.psu.edu/repos/iuc/meme_meme/
+    toolshed.g2.bx.psu.edu/repos/iuc/multiqc/
+    toolshed.g2.bx.psu.edu/repos/iuc/prestor_abseq3/
+    toolshed.g2.bx.psu.edu/repos/iuc/quast/
+    toolshed.g2.bx.psu.edu/repos/iuc/seurat/
+    toolshed.g2.bx.psu.edu/repos/iuc/snpeff/
+  job_conf.yml:
+    runners:
+      gcp_batch:
+        # Warm VM pool. A job is only handed to a pooled VM when the VM's
+        # remaining lifetime covers the job's walltime, so max_run_duration
+        # must stay well below pool_max_vm_lifetime or VMs are never reused
+        # (the runner logs a warning per job when that is the case).
+        # Keep Batch VMs alive between containerized jobs instead of provisioning one per job.
+        pool_enabled: true
+        # Idle seconds before a pooled VM shuts itself down (runner default 300).
+        pool_ttl_seconds: 120
+        # Max idle VMs kept per handler; busy VMs are uncapped (runner default 5).
+        pool_max_size: 2
+        # Batch max_run_duration of a pooled VM, spanning all its jobs plus idle time.
+        pool_max_vm_lifetime: 24h
+        # Seconds after the VM reports RUNNING to claim a job before it is resubmitted fresh (runner default 60).
+        #pool_claim_timeout_seconds: 120
+        # Per job runtime. Enforced by Batch not Galaxy.
+        max_run_duration: 12h
+        # Zones Batch may place VMs in; it uses whichever has capacity, which is
+        # the main defence against stockouts. Must be zones of the deployment's
+        # Batch region (the role derives gcp_batch_region from the VM's zone and
+        # the runner rejects zones outside it, since every VM mounts NFS). These
+        # are the two us-east4 zones that offer L4 GPUs.
+        allowed_locations: us-east4-a,us-east4-c
+        # pool_dir defaults to <first gcp_batch_volumes mount_path>/.galaxy-vm-pool,
+        # i.e. /galaxy/server/database/.galaxy-vm-pool on the NFS export the
+        # role injects, which both the handler and the Batch VMs can reach.
+    execution:
+      environments:
+        gcp_batch_gpu:
+          runner: gcp_batch
+
+# Admin panel extension: one "AnVIL" section. Galaxy loads every
+# <admin_extensions_dir>/<id>/config.yml at startup. galaxy-web serves the API
+# and renders the panel, but the job handlers must load the file too: the
+# settings manager only honours keys declared by a loaded extension, so a
+# handler without the file would ignore every value saved from the form and
+# the GCP Batch runner would fall back to job_conf.yml. Relative URLs are
+# resolved against Galaxy's root by the client, so /monitor becomes
+# <galaxy_prefix>/monitor behind Leonardo too (it must match the role's
+# monitor_base_path, which defaults to the same thing). Another values file
+# can add its own section by mapping another admin-custom/<id>/config.yml;
+# Helm merges these maps across -f files, unlike extraVolumes lists.
+extraFileMappings:
+  /galaxy/server/config/plugins/admin-custom/anvil/config.yml:
+    useSecret: false
+    applyToWeb: true
+    applyToJob: true
+    applyToWorkflow: false
+    applyToSetupJob: false
+    applyToNginx: false
+    tpl: false
+    content: |
+      id: anvil
+      section: AnVIL
+      items:
+        - id: monitor
+          type: link
+          title: Cluster Monitor
+          url: /monitor
+          target: iframe
+        - id: monitor_tab
+          type: link
+          title: Cluster Monitor (new tab)
+          url: /monitor
+          target: new_tab
+        # Runtime overrides for the GCP Batch runner. Each key is one the runner
+        # reads (gcp_batch.<runner param>); a saved value beats the runner-level
+        # value in job_conf.yml above but not a destination-level param, so the
+        # GPU destination's own pool_ttl_seconds and image still apply there.
+        # Pool settings are fixed when a VM boots: a change affects VMs
+        # provisioned after the save, and VMs already running keep their values
+        # until they expire. Saved values persist across restarts and upgrades.
+        - id: batch
+          type: form
+          title: GCP Batch Settings
+          description: >-
+            Defaults for jobs sent to GCP Batch. Keep the job walltime well below
+            the pooled VM lifetime or VMs are never reused. Changes apply to VMs
+            provisioned after saving.
+          inputs:
+            - name: pool_enabled
+              key: gcp_batch.pool_enabled
+              type: boolean
+              label: Keep VMs warm between jobs
+              help: Reuse Batch VMs for follow-up jobs instead of provisioning one per job.
+              default: true
+            - name: pool_ttl_seconds
+              key: gcp_batch.pool_ttl_seconds
+              type: integer
+              label: Idle seconds before a warm VM shuts down
+              help: Longer keeps more jobs off the boot path; idle VMs bill the whole time.
+              default: 120
+              min: 30
+              max: 3600
+            - name: pool_max_size
+              key: gcp_batch.pool_max_size
+              type: integer
+              label: Idle VMs kept per machine type
+              help: Per job handler. Running VMs are not counted.
+              default: 2
+              min: 0
+              max: 20
+            - name: pool_max_vm_lifetime
+              key: gcp_batch.pool_max_vm_lifetime
+              type: text
+              label: Warm VM lifetime
+              help: Total lifetime of a warm VM across all its jobs, e.g. 24h or 6h.
+              default: 24h
+            - name: max_run_duration
+              key: gcp_batch.max_run_duration
+              type: text
+              label: Job walltime
+              help: Longest a single job may run, e.g. 12h or 3600s. Must stay well below the warm VM lifetime.
+              default: 12h
+            - name: allowed_locations
+              key: gcp_batch.allowed_locations
+              type: text
+              label: Allowed zones
+              help: Comma-separated zones in the Batch region that Batch may place VMs in.
+              default: us-east4-a,us-east4-c
+
+jobs:
+  rules:
+    tpv_rules_local.yml:
+      destinations:
+        gcp_batch_gpu:
+          runner: gcp_batch
+          params:
+            docker_enabled: "true"
+            cores: "{cores}"
+            mem: "{mem}"
+            # TPV interpolates the tool's gpus entity attribute; the runner
+            # rounds fractional requests up to whole L4 devices.
+            gpus: "{gpus}"
+            job_id_prefix: galaxy-gpu
+            # Idle L4 VMs are expensive; keep them around for less time than
+            # CPU VMs. Every pool_* runner param can be overridden here.
+            # Idle seconds before a pooled GPU VM shuts itself down.
+            pool_ttl_seconds: 180
+            # GPU jobs boot from the GPU image (NVIDIA driver + container toolkit
+            # baked in) so the host Docker daemon can satisfy --gpus all. The stock
+            # CPU image has no NVIDIA Container Toolkit: Batch's boot-time driver
+            # install only covers the host (nvidia-smi works), and docker run fails
+            # with "failed to discover GPU vendor from CDI". install_gpu_drivers
+            # must be an UNQUOTED bool: destination params bypass the runner's
+            # map=bool spec and a quoted "false" is truthy.
+            custom_vm_image: projects/anvil-and-terra-development/global/images/galaxy-k8s-boot-gpu-debian12-v2026-07-09
+            install_gpu_drivers: false
+          scheduling:
+            require:
+              - gpu
+      tools:
+        # Route GPU-capable tools here by tagging them gpu and giving a GPU
+        # count. Tools without the gpu tag never land on gcp_batch_gpu, and
+        # gpu-tagged tools never land on the CPU destinations. cores/mem give
+        # the g2-standard-32 shape image_learner ran on in the August tests.
+        toolshed.g2.bx.psu.edu/repos/goeckslab/image_learner/image_learner/.*:
+          gpus: 1
+          cores: 32
+          mem: 116
+          scheduling:
+            require:
+              - gpu
+        # Same shape for the multimodal learner (ELECTRA text backbone plus a
+        # CAFormer image backbone): on the CPU destination the GTN HANCOCK
+        # tutorial runs for many hours, on one L4 about an hour.
+        toolshed.g2.bx.psu.edu/repos/goeckslab/multimodal_learner/multimodal_learner/.*:
+          gpus: 1
+          cores: 32
+          mem: 116
+          scheduling:
+            require:
+              - gpu
