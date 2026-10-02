@@ -105,6 +105,7 @@ cinder_csi_version: "2.31.2"               # Cinder CSI version (if used)
 block_storage_disk_path: /mnt/block_storage # Local path to NFS backing disk
 postgres_storage_disk_path: /mnt/postgres_storage # Local path to PSQL backing disk
 setup_postgres_storage: true               # Setup local-path storage for PostgreSQL
+require_mounted_storage: true              # Fail if the paths above are not mounts
 ```
 
 ### CNPG and Restoration Configuration
@@ -123,7 +124,29 @@ restore_galaxy: false                      # Detect and restore existing Galaxy 
 
 ```yaml
 ingress_version: "4.13.2"                  # NGINX ingress chart version
+ingress_use_forwarded_headers: false       # Trust caller-supplied X-Forwarded-* (external L7 proxy only)
+galaxy_tls_cert: ""                        # Certificate served on 443 (PEM or base64 PEM); empty = built-in self-signed
+galaxy_tls_key: ""                         # Its private key
+ingress_tls_from_metadata: true            # Read galaxy_tls_cert/galaxy_tls_key instance attributes when unset
+ingress_tls_secret: galaxy-ingress-tls     # Name of the TLS Secret created in ingress-nginx
 ```
+
+The ingress controller always listens on 443. Without a certificate it serves
+its own self-signed one, which suits clients that do not validate the chain.
+A launcher that wants to validate the connection (Leonardo on Terra) sets the
+`galaxy_tls_cert` and `galaxy_tls_key` instance metadata attributes; the role
+reads them, validates the pair (`files/check_tls_pair.sh`: parseable, key
+matches certificate, currently valid), stores it as a TLS Secret and makes it the
+controller's default certificate. The attributes are read by the role rather
+than passed as extra-vars because `--extra-vars "key=value"` splits on
+whitespace and would corrupt a PEM. A pair that fails validation fails the
+play, since nginx would otherwise fall back to its own certificate silently.
+
+Missing attributes (HTTP 404) leave the self-signed certificate in place. On
+GCE, identified by the gathered `product_name` fact, metadata errors are
+retried three times with a two-second delay and then fail the play rather than
+silently falling back. Outside GCE, an unavailable metadata service remains
+optional; set `ingress_tls_from_metadata: false` to skip the lookup entirely.
 
 ### Galaxy Application Configuration
 

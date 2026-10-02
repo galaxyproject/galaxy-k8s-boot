@@ -367,8 +367,10 @@ fi
 # Add the configuration values directly into the script
 if [ "$EPHEMERAL_ONLY" = false ]; then
     PV_SIZE_VALUE="${PV_SIZE}Gi"
+    REQUIRE_MOUNTED_STORAGE=true
 else
     PV_SIZE_VALUE="20Gi"
+    REQUIRE_MOUNTED_STORAGE=false
 fi
 
 # Convert values files list to JSON array
@@ -486,6 +488,7 @@ cat >> "$TEMP_USER_DATA" << EOF
     GALAXY_VALUES_FILES_JSON="${GALAXY_VALUES_FILES_JSON_ESCAPED}"
     GALAXY_IMPORT_PROFILE_JSON="${GALAXY_IMPORT_PROFILE_JSON_ESCAPED}"
     RESTORE_GALAXY="${RESTORE_GALAXY}"
+    REQUIRE_MOUNTED_STORAGE="${REQUIRE_MOUNTED_STORAGE}"
     GCP_PROJECT_ID="${GCP_PROJECT_ID}"
 EOF
 
@@ -507,6 +510,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     galaxy_user="default-user@galaxyproject.org"
     galaxy_bootstrap_api_key="galaxypassword"
     restore_galaxy=$RESTORE_GALAXY
+    require_mounted_storage=$REQUIRE_MOUNTED_STORAGE
     INVEOF
 
     echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"

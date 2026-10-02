@@ -112,6 +112,11 @@ write_files:
       INGRESS_USE_FORWARDED_HEADERS=$(curl -s -f "http://metadata.google.internal/computeMetadata/v1/instance/attributes/ingress_use_forwarded_headers" -H "Metadata-Flavor: Google" 2>/dev/null || echo "false")
       echo "[$(date)] - Trust caller-supplied X-Forwarded-* headers: ${INGRESS_USE_FORWARDED_HEADERS}"
 
+      # The TLS certificate a launcher injects for port 443 (instance attributes
+      # galaxy_tls_cert and galaxy_tls_key, PEM or base64) is deliberately NOT
+      # read here: --extra-vars "key=value" splits on whitespace and would
+      # corrupt a PEM. The role reads those attributes itself (ingress_setup.yml).
+
       # Terra / AnVIL launch context — baked in at VM launch time by the
       # orchestrating service (e.g. Leonardo). These are intentionally literal
       # values, not metadata reads, so the orchestrator substitutes them before
@@ -152,6 +157,12 @@ write_files:
           echo "[$(date)] - Galaxy Restore Mode: Enabled"
       else
           echo "[$(date)] - Galaxy Restore Mode: Disabled"
+      fi
+
+      # Each disk is optional above, and a missing one means that data lives on
+      # the boot disk by design, so only enforce mounts when both are attached.
+      if [ ! -b /dev/disk/by-id/google-galaxy-data ] || [ ! -b /dev/disk/by-id/google-galaxy-postgres-data ]; then
+          PULL_ARGS+=(--extra-vars "require_mounted_storage=false")
       fi
 
       PULL_ARGS+=(playbook.yml)

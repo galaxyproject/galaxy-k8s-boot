@@ -15,9 +15,9 @@
       write-kubeconfig-mode: "0644"
       cluster-init: true
       token: "{{ rke2_token }}"
-      advertise-address: "{{ ansible_default_ipv4.address }}"
+      advertise-address: "{{ ansible_facts['default_ipv4']['address'] }}"
       tls-san:
-        - "{{ ansible_default_ipv4.address }}"
+        - "{{ ansible_facts['default_ipv4']['address'] }}"
         - "{{ ansible_ssh_host | default(ansible_host) }}"
         - 127.0.0.1
         - localhost

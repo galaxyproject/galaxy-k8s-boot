@@ -164,6 +164,18 @@
 # Install Galaxy
 # ============================================================================
 
+# The file lookup only reads text, so binary images are read with slurp on
+# the controller, which returns them already base64-encoded.
+- name: Read Galaxy static images
+  ansible.builtin.slurp:
+    src: "{{ role_path }}/files/{{ item }}"
+  loop:
+    - galaxy-project-logo-white-square.png
+    - anvil-project-logo-white.png
+  register: static_images
+  delegate_to: localhost
+  become: false
+
 - name: Create ConfigMap for Galaxy static images
   kubernetes.core.k8s:
     state: present
@@ -174,9 +186,7 @@
       metadata:
         name: galaxy-static-images
         namespace: galaxy
-      binaryData:
-        galaxy-project-logo-white-square.png: "{{ lookup('file', 'files/galaxy-project-logo-white-square.png') | b64encode }}"
-        anvil-project-logo-white.png: "{{ lookup('file', 'files/anvil-project-logo-white.png') | b64encode }}"
+      binaryData: "{{ dict(static_images.results | map(attribute='item') | zip(static_images.results | map(attribute='content'))) }}"
 
 # Backs the galaxy-webhook-k8s-monitor volume mounted via values/values.yml's
 # extraVolumes/extraVolumeMounts. Created unconditionally, like the ConfigMap
@@ -203,6 +213,33 @@
           tooltip: K8s Monitor
           function: >
             window.open(window.location.origin + '{{ monitor_base_path }}', '_blank');
+
+# Backs the webhook-rainstone volume in values/values.yml. It is created here,
+# before Galaxy, rather than by Rainstone's chart after it, because Galaxy loads
+# webhooks only at startup: a link created later would appear only after
+# restarting Galaxy's web server. Skipped without Rainstone; the mount is
+# optional.
+- name: Create ConfigMap for the Rainstone masthead webhook
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: galaxy-webhook-rainstone
+        namespace: galaxy
+      data:
+        config.yml: |
+          id: rainstone
+          type:
+            - masthead
+          activate: true
+          icon: fa-dollar-sign
+          tooltip: Compute cost
+          function: >
+            window.open(window.location.origin + '{{ rainstone_base_path }}', '_blank');
+  when: deploy_rainstone | bool
 
 # - name: Write Galaxy post-install user values
 #   ansible.builtin.copy:
@@ -703,6 +740,15 @@
         KUBECONFIG: "{{ kubeconfig_path }}"
       loop: "{{ galaxy_job_handler_deployments }}"
       changed_when: false
+
+# ============================================================================
+# User-defined tool permissions
+# ============================================================================
+- name: Configure single-user Galaxy UDT permissions
+  ansible.builtin.include_tasks: user_defined_tools.yml
+  when:
+    - deploy_galaxy | default(true) | bool
+    - galaxy_grant_user_defined_tool_permissions | default(true) | bool
 
 # ============================================================================
 # Default user disk quota

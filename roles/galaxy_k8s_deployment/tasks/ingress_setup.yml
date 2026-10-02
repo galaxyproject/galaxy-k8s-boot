@@ -13,6 +13,127 @@
     state: present
     repo_url: https://kubernetes.github.io/ingress-nginx
 
+# ============================================================================
+# Default TLS certificate for port 443
+# ============================================================================
+# The controller listens on 443 regardless (hostNetwork) and, without a default
+# certificate, serves a self-signed one it generates itself. A launcher that
+# wants to validate the connection (Leonardo on Terra) supplies the pair through
+# instance metadata; it is read here rather than passed as extra-vars, which
+# split on whitespace and would corrupt a PEM. The Secret is created before the
+# Helm install so the controller finds it on its first start.
+- name: Read the TLS certificate from the instance metadata
+  # Missing attributes are optional. Retry errors on GCE instead of treating
+  # them as absence and silently serving the controller's self-signed cert.
+  # A metadata transport error (-1) remains optional outside GCE.
+  vars:
+    _tls_metadata_on_gce: "{{ ansible_facts.product_name | default('') == 'Google Compute Engine' }}"
+    _tls_metadata_ok_statuses: "{{ [200, 404] if _tls_metadata_on_gce else [200, 404, -1] }}"
+  when:
+    - ingress_tls_from_metadata | bool
+    - galaxy_tls_cert | length == 0
+    - galaxy_tls_key | length == 0
+  block:
+    - name: Fetch the TLS metadata attributes
+      ansible.builtin.uri:
+        url: "http://metadata.google.internal/computeMetadata/v1/instance/attributes/{{ item }}"
+        headers:
+          Metadata-Flavor: Google
+        return_content: true
+        timeout: 5
+      register: _ingress_tls_meta
+      failed_when: _ingress_tls_meta.status | default(-1) not in _tls_metadata_ok_statuses
+      until: _ingress_tls_meta.status | default(-1) in _tls_metadata_ok_statuses
+      retries: 3
+      delay: 2
+      no_log: true
+      loop:
+        - galaxy_tls_cert
+        - galaxy_tls_key
+  rescue:
+    - name: Report TLS metadata retrieval failure without exposing the TLS material
+      ansible.builtin.fail:
+        msg: >-
+          TLS metadata could not be read after retries (attribute request statuses:
+          {{ _ingress_tls_meta.results | map(attribute='status', default=-1) | list }}).
+          Refusing to fall back to the ingress controller's self-signed certificate.
+
+- name: Resolve the TLS certificate and key
+  ansible.builtin.set_fact:
+    _ingress_tls_cert: "{{ galaxy_tls_cert if galaxy_tls_cert | length > 0 else _meta.galaxy_tls_cert | default('') }}"
+    _ingress_tls_key: "{{ galaxy_tls_key if galaxy_tls_key | length > 0 else _meta.galaxy_tls_key | default('') }}"
+  vars:
+    # Only attributes that exist (200) count; a missing one is an empty string.
+    _meta: >-
+      {{ (_ingress_tls_meta.results | default([]))
+         | selectattr('status', 'defined') | selectattr('status', 'equalto', 200)
+         | items2dict(key_name='item', value_name='content') }}
+  no_log: true
+
+- name: Fail when only one half of the TLS pair was provided
+  ansible.builtin.fail:
+    msg: >-
+      Both galaxy_tls_cert and galaxy_tls_key are needed (provided:
+      {{ 'certificate' if _ingress_tls_cert | length > 0 else 'key' }} only).
+  when: (_ingress_tls_cert | length > 0) != (_ingress_tls_key | length > 0)
+
+- name: Configure the provided certificate as the ingress controller's default
+  when: _ingress_tls_cert | length > 0
+  block:
+    - name: Create a scratch directory for the TLS material
+      ansible.builtin.tempfile:
+        state: directory
+      register: _ingress_tls_dir
+
+    - name: Write the certificate and key for validation
+      ansible.builtin.copy:
+        dest: "{{ _ingress_tls_dir.path }}/{{ item.name }}"
+        content: "{{ item.content }}"
+        mode: "0600"
+      loop:
+        - { name: tls.crt, content: "{{ _ingress_tls_cert }}" }
+        - { name: tls.key, content: "{{ _ingress_tls_key }}" }
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: Validate the TLS pair
+      ansible.builtin.script:
+        cmd: "files/check_tls_pair.sh {{ _ingress_tls_dir.path }}/tls.crt {{ _ingress_tls_dir.path }}/tls.key"
+      register: _ingress_tls_check
+      changed_when: false
+      failed_when: _ingress_tls_check.rc != 0
+
+    - name: Store the pair as the ingress controller's TLS Secret
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          type: kubernetes.io/tls
+          metadata:
+            name: "{{ ingress_tls_secret }}"
+            namespace: ingress-nginx
+          data:
+            tls.crt: "{{ _pem_cert | b64encode }}"
+            tls.key: "{{ _pem_key | b64encode }}"
+      vars:
+        # The check accepted PEM or base64 of it; the Secret wants base64 of PEM.
+        _pem_cert: "{{ _ingress_tls_cert if '-----BEGIN' in _ingress_tls_cert else _ingress_tls_cert | b64decode }}"
+        _pem_key: "{{ _ingress_tls_key if '-----BEGIN' in _ingress_tls_key else _ingress_tls_key | b64decode }}"
+      no_log: true
+
+    - name: Display the certificate the ingress controller will serve
+      ansible.builtin.debug:
+        msg: "Ingress default certificate: {{ _ingress_tls_check.stdout_lines | join('; ') }}"
+  always:
+    - name: Remove the scratch directory
+      ansible.builtin.file:
+        path: "{{ _ingress_tls_dir.path }}"
+        state: absent
+      when: _ingress_tls_dir.path is defined
+
 - name: Helm install nginx ingress controller
   kubernetes.core.helm:
     name: ingress-nginx
@@ -20,7 +141,9 @@
     chart_ref: ingress-nginx/ingress-nginx
     chart_version: "{{ ingress_version }}"
     kubeconfig: "{{ kubeconfig_path }}"
-    values:
+    values: "{{ _ingress_values | combine(_ingress_tls_values if (_ingress_tls_cert | length > 0) else {}, recursive=True) }}"
+  vars:
+    _ingress_values:
       controller:
         hostNetwork: true
         hostPort:
@@ -34,6 +157,10 @@
         config:
           proxy-body-size: "100G"
           use-forwarded-headers: "{{ ingress_use_forwarded_headers | bool | lower }}"
+    _ingress_tls_values:
+      controller:
+        extraArgs:
+          default-ssl-certificate: "ingress-nginx/{{ ingress_tls_secret }}"
 
 - name: "Fix for issue https://github.com/kubernetes/ingress-nginx/issues/5401"
   kubernetes.core.k8s:

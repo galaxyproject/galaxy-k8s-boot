@@ -247,7 +247,7 @@
     - name: Create image preparation completion marker
       ansible.builtin.copy:
         content: |
-          Image prepared on: {{ ansible_date_time.iso8601 }}
+          Image prepared on: {{ ansible_facts['date_time']['iso8601'] }}
 
           Installed components:
           - RKE2 prerequisites: {{ rke2_version }}

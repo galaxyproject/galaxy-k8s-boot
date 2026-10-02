@@ -2,6 +2,10 @@
 # Main tasks file for galaxy_k8s_deployment role
 # This orchestrates all the components needed for Galaxy deployment
 
+- name: Include persistent storage preflight checks
+  ansible.builtin.include_tasks: storage_preflight.yml
+  when: require_mounted_storage | bool
+
 - name: Include system setup tasks
   ansible.builtin.include_tasks: system_setup.yml
   when: setup_system | default(true) | bool
@@ -37,3 +41,9 @@
 - name: Include Galaxy K8s Monitor setup tasks
   ansible.builtin.include_tasks: monitor_application.yml
   when: deploy_monitor | default(true) | bool
+
+- name: Include Rainstone setup tasks
+  ansible.builtin.include_tasks: rainstone_application.yml
+  when:
+    - deploy_rainstone | default(true) | bool
+    - deploy_galaxy | default(false) | bool

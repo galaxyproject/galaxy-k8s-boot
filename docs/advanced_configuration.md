@@ -83,3 +83,26 @@ Then deploy with:
 ansible-playbook -i inventories/vm.ini playbook.yml \
   -e galaxy_values_files='["values/base.yml","values/production.yml","values/gcp-batch.yml"]'
 ```
+
+## User-Defined Tools
+
+The default AnVIL values enable Galaxy's beta tool formats and allow user-defined
+tools (UDTs) on the existing Kubernetes and GCP Batch destinations. TPV 3.2.1 or
+newer is required; jobs retain the usual resource-based routing and must run in
+containers. This configuration assumes AnVIL's single-user deployment model.
+
+After Galaxy starts, the playbook grants `galaxy_user` a role of type
+`user_tool_execute` (shown as **Custom Tool Execution** in the admin interface).
+It skips the grant when the user already has an active execution role and runs on
+fresh installations, upgrades, and restores independently of post-install imports
+and quota setup. Multiuser instances do not receive an automatic grant.
+
+Set `galaxy_grant_user_defined_tool_permissions=false` to manage permissions
+manually. To disable the feature itself, override
+`configs.galaxy.yml.galaxy.enable_beta_tool_formats` to `false` in a later values
+file. Disabling automatic grants does not revoke an existing role.
+
+## Rainstone Cost Reports
+
+Rainstone is deployed with Galaxy by default. See [rainstone.md](rainstone.md)
+for what the playbook configures and the variables that change it.

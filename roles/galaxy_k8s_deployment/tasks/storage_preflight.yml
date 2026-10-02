@@ -1,0 +1,29 @@
+---
+# Without this check, a disk that is attached but not mounted leaves these
+# paths as plain directories on the boot disk: the deployment then silently
+# provisions Galaxy's data there, where it is smaller and not preserved.
+- name: Check that persistent storage paths are mount points
+  ansible.builtin.command: findmnt --noheadings --mountpoint {{ item }}
+  loop: "{{ _storage_paths }}"
+  register: _storage_mounts
+  changed_when: false
+  failed_when: false
+  vars:
+    _storage_paths: >-
+      {{ ([block_storage_disk_path] if (setup_nfs | bool or setup_storage | bool) else [])
+         + ([postgres_storage_disk_path]
+            if (setup_storage | bool and setup_postgres_storage | bool and deploy_galaxy | bool)
+            else []) }}
+
+- name: Fail when persistent storage is not mounted
+  ansible.builtin.fail:
+    msg: >-
+      {{ _unmounted | join(', ') }}
+      {{ 'is not a mount point' if _unmounted | length == 1 else 'are not mount points' }},
+      so data would be written to the boot disk. Format and
+      mount the persistent disks first (see "Mounting Persistent Disks" in the
+      top-level README), or set require_mounted_storage=false to deploy on the
+      boot disk deliberately.
+  when: _unmounted | length > 0
+  vars:
+    _unmounted: "{{ _storage_mounts.results | selectattr('rc', '!=', 0) | map(attribute='item') | list }}"

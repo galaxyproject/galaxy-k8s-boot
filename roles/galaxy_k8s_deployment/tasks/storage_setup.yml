@@ -2,22 +2,19 @@
 # Kubernetes Storage Setup Tasks
 - name: Render the hostpath storage class template
   kubernetes.core.k8s:
-    template:
-      path: templates/hostpath_storage_class.yaml.j2
+    definition: "{{ lookup('template', 'templates/hostpath_storage_class.yaml.j2') }}"
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
 - name: Render the elastic block storage class
   kubernetes.core.k8s:
-    template:
-      path: block_storage_storageclass.yml.j2
+    definition: "{{ lookup('template', 'templates/block_storage_storageclass.yml.j2') }}"
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
 - name: Render the postgres storage class
   kubernetes.core.k8s:
-    template:
-      path: postgres_storage_class.yaml.j2
+    definition: "{{ lookup('template', 'templates/postgres_storage_class.yaml.j2') }}"
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
   when: setup_postgres_storage | bool

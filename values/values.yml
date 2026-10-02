@@ -63,6 +63,7 @@ configs:
       # image; the custom dir is written by the extraFileMappings entry below.
       admin_extensions_dir: "config/plugins/admin,/galaxy/server/config/plugins/admin-custom"
       enable_beta_gdpr: true
+      enable_beta_tool_formats: true
       tus_upload_store: /galaxy/server/database/tmp/tus_upload_store
       # The URL linked by the "Galaxy/brand" text
       logo_url: https://anvil.terra.bio/#workspaces
@@ -87,11 +88,14 @@ configs:
       job_metrics:
         - type: core
         - type: cgroup
-      # Adds a masthead icon that opens the galaxy-k8s-monitor dashboard
-      # (deployed alongside Galaxy by this playbook when deploy_monitor is
-      # true) in a new tab. The plugin directory is mounted from the
-      # galaxy-webhook-k8s-monitor ConfigMap; see extraVolumes/
-      # extraVolumeMounts below.
+      # Adds masthead icons that open sibling dashboards in a new tab: the
+      # galaxy-k8s-monitor dashboard (deployed alongside Galaxy by this
+      # playbook when deploy_monitor is true) and Rainstone's cost reports.
+      # Each plugin directory is mounted from that application's own
+      # ConfigMap; see extraVolumes/extraVolumeMounts below. A masthead link
+      # is how these are reached at all: the platform's proxy routes the
+      # Galaxy prefix, so a bare URL typed into the address bar arrives
+      # without the headers the route requires.
       webhooks_dir: "config/plugins/webhooks,/galaxy/server/config/plugins/webhooks-custom"
   job_conf.yml:
     runners:
@@ -304,16 +308,28 @@ jobs:
           max_accepted_cores: 1
           max_accepted_mem: 4
           scheduling:
+            # Helm replaces lists; retain docker from the chart's defaults.
+            accept:
+              - docker
+              - tool_type_user_defined
             prefer:
               - small-job
         gcp_batch:
           runner: gcp_batch
+          scheduling:
+            accept:
+              - docker
+              - tool_type_user_defined
           params:
             docker_enabled: "true"
             cores: "{cores}"
             mem: "{mem}"
             job_id_prefix: galaxy-batch
       tools:
+        # TPV matches dynamic tools by type and UUID, not their authored ID.
+        "user_defined-.*":
+          params:
+            require_container: true
         default:
           scheduling:
             prefer:
@@ -348,6 +364,12 @@ extraVolumes:
   - name: webhook-k8s-monitor
     configMap:
       name: galaxy-webhook-k8s-monitor
+  # The playbook creates this ConfigMap before Galaxy starts, only when it
+  # deploys Rainstone; `optional` keeps Galaxy's pod startable without it.
+  - name: webhook-rainstone
+    configMap:
+      name: galaxy-webhook-rainstone
+      optional: true
 
 extraVolumeMounts:
   - name: static-images
@@ -355,6 +377,9 @@ extraVolumeMounts:
     readOnly: true
   - name: webhook-k8s-monitor
     mountPath: /galaxy/server/config/plugins/webhooks-custom/k8s_monitor
+    readOnly: true
+  - name: webhook-rainstone
+    mountPath: /galaxy/server/config/plugins/webhooks-custom/rainstone
     readOnly: true
 
 extraFileMappings:
@@ -477,10 +502,14 @@ extraFileMappings:
           </body>
       </html>
 
+# The VM has four CPUs and each Galaxy job pod requests a whole one, so the
+# handlers' own requests are kept to a scheduling floor rather than a share of
+# the machine. Requests reserve capacity; they do not cap what a handler may
+# use when the node is idle.
 webHandlers:
   resources:
     requests:
-      cpu: 0.2
+      cpu: 0.1
   gunicorn:
     timeout: 900             # 15 minutes!
   startupProbe:
@@ -500,7 +529,7 @@ workflowHandlers:
 jobHandlers:
   resources:
     requests:
-      cpu: 0.4
+      cpu: 0.1
   startupProbe:
     initialDelaySeconds: 60
     periodSeconds: 10

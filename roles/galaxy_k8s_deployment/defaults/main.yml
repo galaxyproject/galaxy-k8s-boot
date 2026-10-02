@@ -11,6 +11,7 @@ setup_ingress: true
 deploy_galaxy: true
 deploy_pulsar: false
 deploy_monitor: true
+deploy_rainstone: true
 
 # CVMFS Configuration (installed when setup_system is true)
 setup_cvmfs: true
@@ -93,6 +94,11 @@ block_storage_disk_path: /mnt/block_storage
 postgres_storage_disk_path: /mnt/postgres_storage
 setup_postgres_storage: true
 
+# Fail before deploying if the storage paths above are not mount points, so an
+# unmounted persistent disk is not silently replaced by the boot disk. Set to
+# false only for deployments meant to run on the boot disk (e.g. ephemeral VMs).
+require_mounted_storage: true
+
 # cert-manager Configuration
 # Required for CNPG skip-initdb plugin TLS certificates
 setup_cert_manager: false
@@ -131,6 +137,20 @@ ingress_version: "4.13.2"  # https://github.com/kubernetes/ingress-nginx?tab=rea
 # not send the header, so without the pin Galaxy builds http:// export/share
 # links and non-Secure cookies.
 ingress_use_forwarded_headers: false
+# Certificate the ingress controller serves on 443 for hosts without their own
+# TLS secret. Empty -> the controller's built-in self-signed certificate, as
+# before. Leonardo injects a per-VM pair through the instance metadata
+# attributes galaxy_tls_cert and galaxy_tls_key so it can validate the
+# connection instead of trusting any certificate (galaxy-k8s-boot#143); with
+# ingress_tls_from_metadata those attributes are read when the variables below
+# are empty. PEM or base64-encoded PEM. A pair that does not validate (key and
+# certificate mismatch, not yet valid, expired, unparseable) fails the play:
+# nginx would otherwise keep its own certificate silently and the client could
+# not tell why.
+galaxy_tls_cert: ""
+galaxy_tls_key: ""
+ingress_tls_from_metadata: true
+ingress_tls_secret: galaxy-ingress-tls
 
 # Galaxy Application Configuration
 use_local_chart: false
@@ -169,6 +189,9 @@ galaxy_user_quota_name: "vm-disk-quota"
 
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
+# Grant the configured user Custom Tool Execution permission on single-user
+# instances. This API setup also runs on upgrades and restored databases.
+galaxy_grant_user_defined_tool_permissions: true
 galaxy_bootstrap_api_key: "galaxypassword"
 # Public HTTPS URL Galaxy uses to build absolute links (history exports, API
 # callbacks). Leonardo passes this in so Galaxy emits https:// links; empty ->
@@ -242,3 +265,22 @@ monitor_namespace: galaxy
 # matches the more specific path first, so this does not shadow Galaxy itself.
 # Set explicitly to pin the monitor somewhere else.
 monitor_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/monitor"
+
+# Rainstone Configuration
+# Galaxy compute cost reports, installed after Galaxy (deploy_rainstone) into
+# Galaxy's namespace and linked from its masthead. It reads Galaxy's database
+# with Galaxy's own application credential and changes nothing in Galaxy.
+rainstone_chart: cloudve/rainstone
+rainstone_chart_version: "0.3.0"
+# Behind Galaxy's prefix, for the same reason as monitor_base_path.
+rainstone_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/costs"
+# Rainstone's instance identity. Keep it stable for a given Galaxy: a new slug
+# is a new reporting history.
+rainstone_instance_slug: galaxy-galaxy
+# The shared Galaxy account reported on when Galaxy's configuration names no
+# single_user.
+rainstone_workspace_owner: "{{ galaxy_user }}"
+# Chart values merged over the ones this role derives, e.g. an image tag.
+rainstone_values: {}
+# By default a failed Rainstone install is reported without failing the boot.
+rainstone_required: false

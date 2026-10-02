@@ -1,0 +1,156 @@
+---
+# Rainstone Application Setup Tasks
+#
+# Rainstone reports Galaxy's compute costs. It reads Galaxy's database with
+# Galaxy's existing application credential and changes nothing in Galaxy: no
+# schema, role, IAM binding or Galaxy configuration. The values below are the
+# same description `rainstone discover` resolves on the VM, taken from what this
+# playbook just deployed.
+#
+# Rainstone is auxiliary, so a failure here is reported without failing the
+# boot unless rainstone_required is set.
+#
+# restore_galaxy does not restore Rainstone's own database yet: its volume is
+# provisioned afresh on a new VM, so reporting history starts over there.
+
+- name: Deploy Rainstone
+  block:
+    - name: Wait for Galaxy's PostgreSQL cluster
+      kubernetes.core.k8s_info:
+        api_version: postgresql.cnpg.io/v1
+        kind: Cluster
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: rainstone_source_clusters
+      until: >-
+        rainstone_source_clusters.resources | length == 1 and
+        (rainstone_source_clusters.resources[0].status.phase | default('')) == 'Cluster in healthy state'
+      retries: 60
+      delay: 10
+
+    - name: Read Galaxy's configuration
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: galaxy-configs
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: rainstone_galaxy_configs
+
+    - name: Read the Galaxy host's instance metadata
+      ansible.builtin.uri:
+        url: "http://metadata.google.internal/computeMetadata/v1/instance/{{ item }}"
+        headers:
+          Metadata-Flavor: Google
+        return_content: true
+        timeout: 5
+      register: rainstone_host_metadata
+      failed_when: false
+      loop:
+        - id
+        - name
+        - machine-type
+        - zone
+
+    - name: Resolve the Rainstone deployment description
+      ansible.builtin.set_fact:
+        _rainstone_owner: "{{ _galaxy_config.single_user | default(rainstone_workspace_owner, true) }}"
+        _rainstone_source: "{{ rainstone_source_clusters.resources[0] }}"
+        # Metadata answers only on GCP; without it no baseline is declared.
+        _rainstone_host: >-
+          {{ rainstone_host_metadata.results | selectattr('status', 'equalto', 200)
+             | items2dict(key_name='item', value_name='content') }}
+        # Work runs on the Galaxy server when its runner is Galaxy's local
+        # runner; Kubernetes pods are placed from pod observation instead.
+        _rainstone_local_runners: "{{ _local_runners }}"
+        _rainstone_local_destinations: >-
+          {{ _job_conf.execution.environments | default({}) | dict2items
+             | selectattr('value.runner', 'defined')
+             | selectattr('value.runner', 'in', _local_runners)
+             | map(attribute='key') | list }}
+      vars:
+        _galaxy_config: "{{ (rainstone_galaxy_configs.resources[0].data['galaxy.yml'] | from_yaml).galaxy | default({}) }}"
+        _job_conf: "{{ rainstone_galaxy_configs.resources[0].data['job_conf.yml'] | default('{}') | from_yaml }}"
+        _local_runners: >-
+          {{ _job_conf.runners | default({}) | dict2items
+             | selectattr('value.load', 'defined')
+             | selectattr('value.load', 'search', 'LocalJobRunner')
+             | map(attribute='key') | list }}
+
+    - name: Fail when Rainstone has no shared Galaxy account to report on
+      ansible.builtin.fail:
+        msg: >-
+          Galaxy names no single_user and rainstone_workspace_owner is empty;
+          Rainstone's workspace profile reports one shared account.
+      when: _rainstone_owner | length == 0
+
+    - name: Helm install Rainstone
+      kubernetes.core.helm:
+        name: rainstone
+        namespace: galaxy
+        chart_ref: "{{ rainstone_chart }}"
+        chart_version: "{{ rainstone_chart_version }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+        update_repo_cache: true
+        values: "{{ _rainstone_values | combine(_rainstone_baseline if _rainstone_host.id is defined and _rainstone_host['machine-type'] is defined else {}, recursive=True) | combine(_rainstone_batch if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0 and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(rainstone_values, recursive=True) }}"
+      vars:
+        _rainstone_values:
+          instance:
+            # Rainstone's instance identity; it must stay the same across
+            # boots of the same Galaxy.
+            slug: "{{ rainstone_instance_slug }}"
+          basePath: "{{ rainstone_base_path }}"
+          # The playbook creates the masthead link before Galaxy starts; see
+          # galaxy_application.yml.
+          galaxyWebhook:
+            enabled: false
+          auth:
+            mode: anvil-workspace
+            workspaceOwner: "{{ _rainstone_owner }}"
+          source:
+            existingSecret: "{{ _rainstone_source.spec.bootstrap.initdb.secret.name }}"
+            host: "{{ _rainstone_source.metadata.name }}-rw"
+            database: "{{ _rainstone_source.spec.bootstrap.initdb.database }}"
+          database:
+            # The class Galaxy's own database persists on: a retained volume on
+            # the persistent PostgreSQL disk. Rainstone gets its own directory
+            # there and never shares Galaxy's data directory.
+            storageClass: "{{ _rainstone_source.spec.storage.storageClass | default('postgres-storage', true) }}"
+          collector:
+            kubernetes:
+              enabled: true
+              namespace: galaxy
+        _rainstone_baseline:
+          baseline:
+            policyVersion: "host-{{ _rainstone_host.id | trim }}"
+            resourceUid: "{{ _rainstone_host.id | trim }}"
+            nodeNames: "{{ _rainstone_host.name | default('') | trim }}"
+            machineType: "{{ _rainstone_host['machine-type'] | trim | regex_replace('.*/', '') }}"
+            zone: "{{ _zone }}"
+            region: "{{ _zone | regex_replace('-[a-z]$', '') }}"
+            runners: "{{ _rainstone_local_runners | join(',') | default('local', true) }}"
+            destinations: "{{ _rainstone_local_destinations | join(',') }}"
+        _zone: "{{ _rainstone_host.zone | default('') | trim | regex_replace('.*/', '') }}"
+        _rainstone_batch:
+          collector:
+            gcpBatch:
+              project: "{{ gcp_project_id }}"
+              location: "{{ gcp_batch_region }}"
+
+    - name: Display Rainstone's address
+      ansible.builtin.debug:
+        msg: "Rainstone is installed at {{ rainstone_base_path }} and linked from Galaxy's masthead."
+
+  rescue:
+    - name: Report that Rainstone could not be deployed
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Rainstone was not deployed ({{ ansible_failed_task.name }}:
+          {{ ansible_failed_result.msg | default('see the task output above') }}).
+          Galaxy is unaffected. Set deploy_rainstone=false to skip it, or
+          rainstone_required=true to fail the playbook instead.
+
+    - name: Fail the playbook when Rainstone is required
+      ansible.builtin.fail:
+        msg: Rainstone deployment failed and rainstone_required is true.
+      when: rainstone_required | bool
