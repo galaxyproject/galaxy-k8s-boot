@@ -74,7 +74,7 @@ class IngressTlsMetadataTests(unittest.TestCase):
         tasks.append({
             "ansible.builtin.copy": {
                 "dest": str(result_path),
-                "content": "{{ {'cert': _ingress_tls_cert, 'key': _ingress_tls_key} | to_json }}",
+                "content": "{{ {'cert': _ingress_tls_cert, 'key': _ingress_tls_key, 'client_ca': _ingress_tls_client_ca} | to_json }}",
                 "mode": "0600",
             },
             "no_log": True,
@@ -95,7 +95,9 @@ class IngressTlsMetadataTests(unittest.TestCase):
         })
         result = subprocess.run(
             [ANSIBLE_PLAYBOOK, "-i", "localhost,", "-c", "local", "-e", f"ansible_python_interpreter={sys.executable}", str(playbook)],
-            env=env, text=True, capture_output=True, timeout=60,
+            # Three attributes, three attempts each, 5 s per attempt when the
+            # connection hangs rather than being refused (macOS): allow for it.
+            env=env, text=True, capture_output=True, timeout=120,
         )
         resolved = json.loads(result_path.read_text()) if result_path.exists() else None
         return result, resolved
@@ -103,18 +105,47 @@ class IngressTlsMetadataTests(unittest.TestCase):
     def test_missing_attributes_keep_the_default_certificate_without_retries(self):
         result, resolved = self.run_metadata_tasks()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(resolved, {"cert": "", "key": ""})
-        self.assertEqual(self.requests, {"galaxy_tls_cert": 1, "galaxy_tls_key": 1})
+        self.assertEqual(resolved, {"cert": "", "key": "", "client_ca": ""})
+        self.assertEqual(self.requests, {"galaxy_tls_cert": 1, "galaxy_tls_key": 1, "galaxy_tls_client_ca": 1})
 
-    def test_transient_errors_are_retried_and_the_pair_is_used(self):
+    def test_transient_errors_are_retried_and_the_material_is_used(self):
         self.responses.update({
             "galaxy_tls_cert": [(503, "try again"), (200, "test certificate")],
             "galaxy_tls_key": [(429, "try again"), (200, "test private key")],
+            "galaxy_tls_client_ca": [(500, "try again"), (200, "test client ca")],
         })
         result, resolved = self.run_metadata_tasks()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(resolved, {"cert": "test certificate", "key": "test private key"})
-        self.assertEqual(self.requests, {"galaxy_tls_cert": 2, "galaxy_tls_key": 2})
+        self.assertEqual(resolved, {"cert": "test certificate", "key": "test private key", "client_ca": "test client ca"})
+        self.assertEqual(self.requests, {"galaxy_tls_cert": 2, "galaxy_tls_key": 2, "galaxy_tls_client_ca": 2})
+
+    def test_server_pair_without_client_ca_fails_on_gce(self):
+        self.responses.update({
+            "galaxy_tls_cert": [(200, "test certificate")],
+            "galaxy_tls_key": [(200, "test private key")],
+        })
+        result, resolved = self.run_metadata_tasks()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(resolved)
+        self.assertIn("galaxy_tls_client_ca was not", result.stdout)
+
+    def test_server_pair_without_client_ca_is_allowed_outside_gce(self):
+        self.responses.update({
+            "galaxy_tls_cert": [(200, "test certificate")],
+            "galaxy_tls_key": [(200, "test private key")],
+        })
+        result, resolved = self.run_metadata_tasks(on_gce=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(resolved, {"cert": "test certificate", "key": "test private key", "client_ca": ""})
+
+    def test_client_ca_without_server_pair_fails_everywhere(self):
+        self.responses.update({"galaxy_tls_client_ca": [(200, "test client ca")]})
+        for on_gce in (True, False):
+            with self.subTest(on_gce=on_gce):
+                result, resolved = self.run_metadata_tasks(on_gce=on_gce)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIsNone(resolved)
+                self.assertIn("without galaxy_tls_cert and galaxy_tls_key", result.stdout)
 
     def test_persistent_errors_fail_instead_of_using_the_default_certificate(self):
         self.responses.update({name: [(503, "try again")] for name in ("galaxy_tls_cert", "galaxy_tls_key")})
@@ -133,18 +164,20 @@ class IngressTlsMetadataTests(unittest.TestCase):
     def test_unavailable_metadata_outside_gce_remains_optional(self):
         result, resolved = self.run_metadata_tasks(on_gce=False, unavailable=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(resolved, {"cert": "", "key": ""})
+        self.assertEqual(resolved, {"cert": "", "key": "", "client_ca": ""})
 
     def test_metadata_can_be_disabled_on_gce(self):
         result, resolved = self.run_metadata_tasks(ingress_tls_from_metadata=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(resolved, {"cert": "", "key": ""})
+        self.assertEqual(resolved, {"cert": "", "key": "", "client_ca": ""})
         self.assertFalse(self.requests)
 
-    def test_explicit_pair_skips_metadata(self):
-        result, resolved = self.run_metadata_tasks(galaxy_tls_cert="explicit certificate", galaxy_tls_key="explicit key")
+    def test_explicit_material_skips_metadata(self):
+        result, resolved = self.run_metadata_tasks(
+            galaxy_tls_cert="explicit certificate", galaxy_tls_key="explicit key", galaxy_tls_client_ca="explicit ca"
+        )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(resolved, {"cert": "explicit certificate", "key": "explicit key"})
+        self.assertEqual(resolved, {"cert": "explicit certificate", "key": "explicit key", "client_ca": "explicit ca"})
         self.assertFalse(self.requests)
 
 

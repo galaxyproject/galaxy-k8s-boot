@@ -129,6 +129,9 @@ galaxy_tls_cert: ""                        # Certificate served on 443 (PEM or b
 galaxy_tls_key: ""                         # Its private key
 ingress_tls_from_metadata: true            # Read galaxy_tls_cert/galaxy_tls_key instance attributes when unset
 ingress_tls_secret: galaxy-ingress-tls     # Name of the TLS Secret created in ingress-nginx
+galaxy_tls_client_ca: ""                   # CA client certificates on 443 must chain to (mTLS); empty = no client verification
+ingress_tls_client_ca_secret: galaxy-ingress-client-ca  # Secret (key ca.crt) in the galaxy namespace the auth-tls annotations reference
+ingress_tls_client_verify_depth: 1         # Chain depth between client certificate and the CA
 ```
 
 The ingress controller always listens on 443. Without a certificate it serves
@@ -147,6 +150,24 @@ GCE, identified by the gathered `product_name` fact, metadata errors are
 retried three times with a two-second delay and then fail the play rather than
 silently falling back. Outside GCE, an unavailable metadata service remains
 optional; set `ingress_tls_from_metadata: false` to skip the lookup entirely.
+
+Mutual TLS adds the other direction: with the `galaxy_tls_client_ca` attribute
+(or variable), the role validates the CA (`files/check_ca_cert.sh`), stores it
+as a Secret in the `galaxy` namespace, and annotates the Galaxy Ingress with
+`auth-tls-secret`, `auth-tls-verify-client: "on"` and `auth-tls-verify-depth`.
+The Secret has to share the Ingress's namespace: ingress-nginx rejects a
+cross-namespace reference unless `allow-cross-namespace-resources` is enabled,
+and the rejection is `return 403` for the whole server rather than a skipped
+annotation.
+ingress-nginx applies client verification per host, and every Ingress of this
+deployment uses the empty host, where the controller takes the first Ingress's
+client auth for the whole server, so tusd, the monitor and Rainstone are
+covered as well. On GCE a server pair without a client CA fails the play, since
+the launcher expects mutual TLS and the VM would otherwise accept any client;
+a CA without the server pair fails everywhere; outside GCE a missing CA is
+optional. With verification on, a client that presents no certificate gets
+HTTP 400 on 443 (port 80 is unaffected), which includes `curl` checks and
+browsers hitting the VM directly.
 
 ### Galaxy Application Configuration
 
