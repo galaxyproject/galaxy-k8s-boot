@@ -50,6 +50,7 @@
       loop:
         - galaxy_tls_cert
         - galaxy_tls_key
+        - galaxy_tls_client_ca
   rescue:
     - name: Report TLS metadata retrieval failure without exposing the TLS material
       ansible.builtin.fail:
@@ -62,6 +63,7 @@
   ansible.builtin.set_fact:
     _ingress_tls_cert: "{{ galaxy_tls_cert if galaxy_tls_cert | length > 0 else _meta.galaxy_tls_cert | default('') }}"
     _ingress_tls_key: "{{ galaxy_tls_key if galaxy_tls_key | length > 0 else _meta.galaxy_tls_key | default('') }}"
+    _ingress_tls_client_ca: "{{ galaxy_tls_client_ca if galaxy_tls_client_ca | length > 0 else _meta.galaxy_tls_client_ca | default('') }}"
   vars:
     # Only attributes that exist (200) count; a missing one is an empty string.
     _meta: >-
@@ -76,6 +78,29 @@
       Both galaxy_tls_cert and galaxy_tls_key are needed (provided:
       {{ 'certificate' if _ingress_tls_cert | length > 0 else 'key' }} only).
   when: (_ingress_tls_cert | length > 0) != (_ingress_tls_key | length > 0)
+
+# Mutual TLS presupposes the server identity the pair provides, and on GCE the
+# launcher that injects the pair (Leonardo) expects the VM to verify its client
+# certificate: a pair without a CA there would silently accept any client.
+- name: Fail when the client CA was provided without the server certificate
+  ansible.builtin.fail:
+    msg: >-
+      galaxy_tls_client_ca was provided without galaxy_tls_cert and galaxy_tls_key;
+      client certificate verification needs the server certificate pair as well.
+  when:
+    - _ingress_tls_client_ca | length > 0
+    - _ingress_tls_cert | length == 0
+
+- name: Fail when the server certificate was provided without a client CA on GCE
+  ansible.builtin.fail:
+    msg: >-
+      galaxy_tls_cert and galaxy_tls_key were provided but galaxy_tls_client_ca was
+      not. On GCE the launcher expects mutual TLS, so this is a misconfiguration
+      rather than a fallback; provide the client CA or clear the server pair.
+  when:
+    - ansible_facts.product_name | default('') == 'Google Compute Engine'
+    - _ingress_tls_cert | length > 0
+    - _ingress_tls_client_ca | length == 0
 
 - name: Configure the provided certificate as the ingress controller's default
   when: _ingress_tls_cert | length > 0
@@ -104,6 +129,24 @@
       changed_when: false
       failed_when: _ingress_tls_check.rc != 0
 
+    # Validated before anything is written to the cluster, so a bad CA fails the
+    # play without leaving a half-configured ingress behind.
+    - name: Write the client CA for validation
+      ansible.builtin.copy:
+        dest: "{{ _ingress_tls_dir.path }}/ca.crt"
+        content: "{{ _ingress_tls_client_ca }}"
+        mode: "0600"
+      no_log: true
+      when: _ingress_tls_client_ca | length > 0
+
+    - name: Validate the client CA
+      ansible.builtin.script:
+        cmd: "files/check_ca_cert.sh {{ _ingress_tls_dir.path }}/ca.crt"
+      register: _ingress_tls_ca_check
+      changed_when: false
+      failed_when: _ingress_tls_ca_check.rc != 0
+      when: _ingress_tls_client_ca | length > 0
+
     - name: Store the pair as the ingress controller's TLS Secret
       kubernetes.core.k8s:
         state: present
@@ -127,6 +170,23 @@
     - name: Display the certificate the ingress controller will serve
       ansible.builtin.debug:
         msg: "Ingress default certificate: {{ _ingress_tls_check.stdout_lines | join('; ') }}"
+
+    # Client verification itself is switched on through auth-tls annotations on
+    # the Galaxy Ingress, and the controller only accepts a CA Secret from the
+    # Ingress's own namespace (allow-cross-namespace-resources is off by
+    # default; a cross-namespace reference becomes `return 403` for the whole
+    # server). The Secret is therefore created in galaxy_application.yml, next to
+    # the Ingress; this only keeps the validated CA as PEM for that task.
+    - name: Keep the validated client CA for the Galaxy release
+      ansible.builtin.set_fact:
+        _ingress_tls_client_ca_pem: "{{ _ingress_tls_client_ca if '-----BEGIN' in _ingress_tls_client_ca else _ingress_tls_client_ca | b64decode }}"
+      no_log: true
+      when: _ingress_tls_client_ca | length > 0
+
+    - name: Display the CA client certificates will be verified against
+      ansible.builtin.debug:
+        msg: "Ingress client CA: {{ _ingress_tls_ca_check.stdout_lines | join('; ') }}"
+      when: _ingress_tls_client_ca | length > 0
   always:
     - name: Remove the scratch directory
       ansible.builtin.file:

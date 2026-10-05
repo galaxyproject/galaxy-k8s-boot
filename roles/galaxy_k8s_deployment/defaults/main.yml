@@ -151,6 +151,23 @@ galaxy_tls_cert: ""
 galaxy_tls_key: ""
 ingress_tls_from_metadata: true
 ingress_tls_secret: galaxy-ingress-tls
+# Mutual TLS: the CA (or chain) client certificates on 443 must be signed by.
+# Leonardo injects it as the galaxy_tls_client_ca instance attribute (PEM or
+# base64 PEM, galaxy-k8s-boot#150); read with the server pair above. ingress-nginx
+# has no controller-level client-certificate setting, so the CA is stored as a
+# Secret in the galaxy namespace (the controller rejects a Secret from another
+# namespace, and that rejection is a 403 for the whole server) and applied
+# through auth-tls annotations on the Galaxy Ingress; every Ingress here shares
+# the empty host, and the controller applies the first Ingress's client auth to
+# that whole server, so tusd, the monitor and Rainstone are covered too. On GCE a server pair without a client CA fails the play (Leo
+# expects mTLS; silently accepting any client would be a misconfiguration); a CA
+# without the server pair fails everywhere. Outside GCE a missing CA is optional.
+# With verification on, a client without a certificate gets HTTP 400 on 443.
+galaxy_tls_client_ca: ""
+ingress_tls_client_ca_secret: galaxy-ingress-client-ca
+# Chain depth between a client certificate and the trusted CA (1 = signed
+# directly by it).
+ingress_tls_client_verify_depth: 1
 
 # Galaxy Application Configuration
 use_local_chart: false

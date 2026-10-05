@@ -22,6 +22,27 @@
     state: present
     kubeconfig: "{{ kubeconfig_path }}"
 
+# Mutual TLS: the CA the Galaxy Ingress's auth-tls annotations reference (see
+# _helm_values_client_auth below). It must live in the Ingress's own namespace:
+# ingress-nginx rejects cross-namespace Secret references unless
+# allow-cross-namespace-resources is enabled, and the rejection is not a skipped
+# annotation but `return 403` for every request on the shared server. The CA
+# itself was read and validated in ingress_setup.yml.
+- name: Store the client CA the Galaxy Ingress verifies clients against
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ ingress_tls_client_ca_secret }}"
+        namespace: galaxy
+      data:
+        ca.crt: "{{ _ingress_tls_client_ca_pem | b64encode }}"
+  no_log: true
+  when: _ingress_tls_client_ca_pem | default('') | length > 0
+
 # ============================================================================
 # Galaxy Data Restoration - Parse Mode
 # ============================================================================
@@ -464,7 +485,7 @@
     update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
     timeout: "20m0s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_network if (enable_gcp_batch | default(false) | bool and gcp_batch_network | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_subnet if (enable_gcp_batch | default(false) | bool and gcp_batch_subnet | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_forwarded_proto if (ingress_use_forwarded_headers | default(false) | bool) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy | bool) else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_network if (enable_gcp_batch | default(false) | bool and gcp_batch_network | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_subnet if (enable_gcp_batch | default(false) | bool and gcp_batch_subnet | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_forwarded_proto if (ingress_use_forwarded_headers | default(false) | bool) else {}, recursive=True) | combine(_helm_values_client_auth if (_ingress_tls_client_ca | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy | bool) else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
   vars:
     _helm_prefix_sets:
@@ -550,6 +571,19 @@
       nginx:
         conf:
           forwardedProtoOverride: https
+    # Mutual TLS on port 443 (the CA Secret is created above, in this
+    # namespace, because the controller rejects cross-namespace references).
+    # ingress-nginx applies client verification per host, never per path, and
+    # every Ingress of this deployment uses the empty host (the controller's
+    # default server), where the first Ingress with a CA configures the whole
+    # server. Annotating the Galaxy Ingress therefore covers tusd, the monitor
+    # and Rainstone too.
+    _helm_values_client_auth:
+      ingress:
+        annotations:
+          nginx.ingress.kubernetes.io/auth-tls-secret: "galaxy/{{ ingress_tls_client_ca_secret }}"
+          nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
+          nginx.ingress.kubernetes.io/auth-tls-verify-depth: "{{ ingress_tls_client_verify_depth }}"
     _helm_values_cnpg_plugin:
       postgresql:
         cluster:
