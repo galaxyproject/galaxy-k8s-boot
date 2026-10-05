@@ -291,6 +291,41 @@ configs:
       bucket: gbif-open-data-eu-central-1
       anon: true
 
+    - type: s3fs
+      label: 4D Nucleome (4DN)
+      id: 4dn-open-data-public
+      doc: Released and archived 4D Nucleome data (Hi-C, imaging, and other nuclear organization assays). Files are keyed by portal UUID and accession; see https://data.4dnucleome.org for metadata.
+      bucket: 4dn-open-data-public
+      anon: true
+
+    - type: s3fs
+      label: Somatic Mosaicism across Human Tissues (SMaHT)
+      id: smaht-open-data-public
+      doc: SMaHT open-access data, including aligned WGS and RNA-Seq reads and variants from benchmarking cell lines. Files are keyed by portal UUID and accession; see https://data.smaht.org for metadata.
+      bucket: smaht-open-data-public
+      anon: true
+
+    - type: s3fs
+      label: Human Microbiome Project (HMP)
+      id: human-microbiome-project
+      doc: Human Microbiome Project sequencing data and reference genomes from the NIH Common Fund.
+      bucket: human-microbiome-project
+      anon: true
+
+    - type: s3fs
+      label: SPARC
+      id: sparc-public
+      doc: SPARC public datasets bridging the body and the brain. Top-level folders are SPARC dataset IDs; see https://sparc.science for metadata.
+      bucket: sparc-prod-aod-discover-publish50-use1
+      anon: true
+
+    - type: s3fs
+      label: NIH Roadmap Epigenomics
+      id: roadmapepigenomics
+      doc: Released and archived NIH Roadmap Epigenomics data, including uniformly processed hg19 tracks.
+      bucket: roadmapepigenomics
+      anon: true
+
 jobs:
    rules:
     tpv_rules_local.yml:
