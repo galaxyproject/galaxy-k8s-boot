@@ -583,7 +583,7 @@
         annotations:
           nginx.ingress.kubernetes.io/auth-tls-secret: "galaxy/{{ ingress_tls_client_ca_secret }}"
           nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
-          nginx.ingress.kubernetes.io/auth-tls-verify-depth: "{{ ingress_tls_client_verify_depth }}"
+          nginx.ingress.kubernetes.io/auth-tls-verify-depth: "{{ ingress_tls_client_verify_depth | string }}"
     _helm_values_cnpg_plugin:
       postgresql:
         cluster:
