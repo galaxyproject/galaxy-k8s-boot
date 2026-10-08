@@ -1,0 +1,7 @@
+jobs:
+  rules:
+    tpv_rules_local.yml:
+      destinations:
+        k8s:
+          max_cores: {{ galaxy_job_max_cores }}
+          max_mem: {{ galaxy_job_max_mem }}
