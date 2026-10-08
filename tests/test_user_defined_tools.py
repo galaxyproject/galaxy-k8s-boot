@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 
-TASKS = Path(__file__).resolve().parents[1] / "roles/galaxy_k8s_deployment/tasks/user_defined_tools.yml"
+TASKS = Path(__file__).resolve().parents[1] / "roles/galaxy_k8s_deployment/tasks/user_defined_tools_grant.yml"
 EMAIL = "default-user@galaxyproject.org"
 USER_ID = "encoded-user"
 API_KEY = "test-bootstrap-key"
@@ -119,7 +119,10 @@ class PermissionTests(unittest.TestCase):
             "ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook),
             "-e", json.dumps({
                 "_udt_api": f"http://127.0.0.1:{self.server.server_port}/galaxy",
-                "galaxy_prefix": "/galaxy", "galaxy_user": EMAIL,
+                # Leonardo passes the workspace owner as galaxy_user, which is not
+                # a Galaxy user; only Galaxy's single_user is.
+                "galaxy_prefix": "/galaxy", "galaxy_user": "workspace-owner@example.org",
+                "galaxy_single_user": EMAIL,
                 "galaxy_bootstrap_api_key": API_KEY, "ansible_python_interpreter": sys.executable,
             }),
         ], env=env, text=True, capture_output=True, timeout=90)

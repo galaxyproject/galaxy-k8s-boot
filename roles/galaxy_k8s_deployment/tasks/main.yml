@@ -47,3 +47,13 @@
   when:
     - deploy_rainstone | default(true) | bool
     - deploy_galaxy | default(false) | bool
+
+- name: Include single-user Galaxy UDT permission tasks
+  ansible.builtin.include_tasks: user_defined_tools.yml
+  when:
+    - deploy_galaxy | default(false) | bool
+    - galaxy_grant_user_defined_tool_permissions | default(true) | bool
+
+- name: Include default user disk quota tasks
+  ansible.builtin.include_tasks: user_quota.yml
+  when: deploy_galaxy | default(false) | bool

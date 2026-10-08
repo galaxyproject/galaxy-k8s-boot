@@ -91,11 +91,14 @@ tools (UDTs) on the existing Kubernetes and GCP Batch destinations. TPV 3.2.1 or
 newer is required; jobs retain the usual resource-based routing and must run in
 containers. This configuration assumes AnVIL's single-user deployment model.
 
-After Galaxy starts, the playbook grants `galaxy_user` a role of type
-`user_tool_execute` (shown as **Custom Tool Execution** in the admin interface).
-It skips the grant when the user already has an active execution role and runs on
-fresh installations, upgrades, and restores independently of post-install imports
-and quota setup. Multiuser instances do not receive an automatic grant.
+After Galaxy, the monitor, and Rainstone are deployed, the playbook grants
+Galaxy's `single_user` (read from the `galaxy-configs` ConfigMap, not
+`galaxy_user`) a role of type `user_tool_execute` (shown as **Custom Tool
+Execution** in the admin interface). It skips the grant when the user already has
+an active execution role and runs on fresh installations, upgrades, and restores
+independently of post-install imports and quota setup. Multiuser instances do not
+receive an automatic grant. A failed grant is reported as a warning and does not
+fail the playbook.
 
 Set `galaxy_grant_user_defined_tool_permissions=false` to manage permissions
 manually. To disable the feature itself, override
