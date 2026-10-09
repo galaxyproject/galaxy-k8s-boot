@@ -262,30 +262,34 @@
             window.open(window.location.origin + '{{ rainstone_base_path }}', '_blank');
   when: deploy_rainstone | bool
 
-# - name: Write Galaxy post-install user values
-#   ansible.builtin.copy:
-#     dest: /tmp/galaxy-postinstall-user.yaml
-#     content: |
-#       postInstallJob:
-#         galaxyUser: "{{ galaxy_user }}"
-#     mode: '0644'
-#   delegate_to: localhost
-#   become: false
-#   when: galaxy_user | default('') | length > 0
-#
-# To also wire the file written above into the Helm values, uncomment the
-# `user_file` set line below and insert `user_file` between `profile` and `base`
-# in the returned list. It overrides the profile's galaxyUser, while user-defined
-# mixins (base) come last and still take precedence:
-#   {%- set user_file = ['/tmp/galaxy-postinstall-user.yaml'] if (galaxy_user | default('') | length > 0) else [] -%}
-#   {{ profile + user_file + base }}
-
 - name: Prepare Galaxy values files list
   set_fact:
     _galaxy_values_files: >-
       {%- set base = galaxy_values_files if (galaxy_values_files is defined and galaxy_values_files | length > 0) else ['values/values.yml'] -%}
       {%- set profile = galaxy_import_profile | default([]) -%}
       {{ profile + base }}
+
+# The import hook runs inside Helm install, before galaxy-configs can be read.
+# Resolve its user from the same ordered values files that configure Galaxy;
+# galaxy_user can instead be the Leonardo workspace owner. The chart's defaults
+# do not name a single_user, and the inline values below do not override it.
+- name: Initialize merged Galaxy values
+  ansible.builtin.set_fact:
+    _galaxy_merged_values: {}
+
+- name: Merge Galaxy values files to resolve the import user
+  ansible.builtin.set_fact:
+    _galaxy_merged_values: >-
+      {{ _galaxy_merged_values | combine(lookup('file', item) | from_yaml | default({}, true), recursive=True) }}
+  loop: "{{ _galaxy_values_files }}"
+  no_log: true
+
+- name: Resolve the post-install Galaxy user
+  ansible.builtin.set_fact:
+    _galaxy_postinstall_user: "{{ _galaxy_config.single_user | default('', true) }}"
+  vars:
+    _galaxy_config: >-
+      {{ ((_galaxy_merged_values.configs | default({}, true))['galaxy.yml'] | default({}, true)).galaxy | default({}, true) }}
 
 - name: Display Galaxy values files being used
   debug:
@@ -494,8 +498,11 @@
     _helm_values_base:
       # Rebuilding a cluster creates a new Helm release and runs post-install
       # hooks again. Restored databases already contain the profile's imports.
-      # An empty map leaves the values files in control on fresh installations.
-      postInstallJob: "{{ {'enabled': false} if (restore_galaxy | bool) else {} }}"
+      # Single-user imports must target the account Galaxy actually creates.
+      # Multiuser imports keep the profile's explicitly configured account.
+      postInstallJob: >-
+        {{ ({'galaxyUser': _galaxy_postinstall_user} if _galaxy_postinstall_user | length > 0 else {})
+           | combine({'enabled': false} if (restore_galaxy | bool) else {}) }}
       persistence:
         size: "{{ galaxy_persistence_size }}"
       postgresql:
