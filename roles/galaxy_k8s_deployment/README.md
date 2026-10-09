@@ -195,6 +195,13 @@ postInstall job and imports sample RNA-seq datasets and a workflow after
 deployment. Set `galaxy_import_profile: []` to skip post-install imports
 entirely.
 
+On single-user instances, the playbook sets the import job's `galaxyUser` to
+`configs.galaxy.yml.galaxy.single_user` from the merged values files, with later
+files taking precedence. This keeps imports and UDT permissions on the same
+Galaxy account even when Leonardo supplies a different workspace owner as
+`galaxy_user`. If `single_user` is unset or null (multiuser mode), the profile's
+`postInstallJob.galaxyUser` remains in control.
+
 **Requirements**: Galaxy Helm chart 6.8.0+, ABM 2.12.0+.
 
 To define custom imports, create a Helm values file with a `postInstallJob`

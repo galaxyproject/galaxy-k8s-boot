@@ -262,30 +262,34 @@
             window.open(window.location.origin + '{{ rainstone_base_path }}', '_blank');
   when: deploy_rainstone | bool
 
-# - name: Write Galaxy post-install user values
-#   ansible.builtin.copy:
-#     dest: /tmp/galaxy-postinstall-user.yaml
-#     content: |
-#       postInstallJob:
-#         galaxyUser: "{{ galaxy_user }}"
-#     mode: '0644'
-#   delegate_to: localhost
-#   become: false
-#   when: galaxy_user | default('') | length > 0
-#
-# To also wire the file written above into the Helm values, uncomment the
-# `user_file` set line below and insert `user_file` between `profile` and `base`
-# in the returned list. It overrides the profile's galaxyUser, while user-defined
-# mixins (base) come last and still take precedence:
-#   {%- set user_file = ['/tmp/galaxy-postinstall-user.yaml'] if (galaxy_user | default('') | length > 0) else [] -%}
-#   {{ profile + user_file + base }}
-
 - name: Prepare Galaxy values files list
   set_fact:
     _galaxy_values_files: >-
       {%- set base = galaxy_values_files if (galaxy_values_files is defined and galaxy_values_files | length > 0) else ['values/values.yml'] -%}
       {%- set profile = galaxy_import_profile | default([]) -%}
       {{ profile + base }}
+
+# The import hook runs inside Helm install, before galaxy-configs can be read.
+# Resolve its user from the same ordered values files that configure Galaxy;
+# galaxy_user can instead be the Leonardo workspace owner. The chart's defaults
+# do not name a single_user, and the inline values below do not override it.
+- name: Initialize merged Galaxy values
+  ansible.builtin.set_fact:
+    _galaxy_merged_values: {}
+
+- name: Merge Galaxy values files to resolve the import user
+  ansible.builtin.set_fact:
+    _galaxy_merged_values: >-
+      {{ _galaxy_merged_values | combine(lookup('file', item) | from_yaml | default({}, true), recursive=True) }}
+  loop: "{{ _galaxy_values_files }}"
+  no_log: true
+
+- name: Resolve the post-install Galaxy user
+  ansible.builtin.set_fact:
+    _galaxy_postinstall_user: "{{ _galaxy_config.single_user | default('', true) }}"
+  vars:
+    _galaxy_config: >-
+      {{ ((_galaxy_merged_values.configs | default({}, true))['galaxy.yml'] | default({}, true)).galaxy | default({}, true) }}
 
 - name: Display Galaxy values files being used
   debug:
@@ -494,8 +498,11 @@
     _helm_values_base:
       # Rebuilding a cluster creates a new Helm release and runs post-install
       # hooks again. Restored databases already contain the profile's imports.
-      # An empty map leaves the values files in control on fresh installations.
-      postInstallJob: "{{ {'enabled': false} if (restore_galaxy | bool) else {} }}"
+      # Single-user imports must target the account Galaxy actually creates.
+      # Multiuser imports keep the profile's explicitly configured account.
+      postInstallJob: >-
+        {{ ({'galaxyUser': _galaxy_postinstall_user} if _galaxy_postinstall_user | length > 0 else {})
+           | combine({'enabled': false} if (restore_galaxy | bool) else {}) }}
       persistence:
         size: "{{ galaxy_persistence_size }}"
       postgresql:
@@ -738,95 +745,3 @@
         KUBECONFIG: "{{ kubeconfig_path }}"
       loop: "{{ galaxy_job_handler_deployments }}"
       changed_when: false
-
-# ============================================================================
-# User-defined tool permissions
-# ============================================================================
-- name: Configure single-user Galaxy UDT permissions
-  ansible.builtin.include_tasks: user_defined_tools.yml
-  when:
-    - deploy_galaxy | default(true) | bool
-    - galaxy_grant_user_defined_tool_permissions | default(true) | bool
-
-# ============================================================================
-# Default user disk quota
-# ============================================================================
-# `enable_quotas` in the Helm values only switches quota enforcement on. The amount
-# itself is a database record with no galaxy.yml equivalent, so it has to be created
-# through the API once Galaxy is serving. Without it the storage dashboard reports
-# "unlimited", which is misleading on a VM backed by a fixed-size disk.
-- name: Configure the default user disk quota
-  vars:
-    # ingress-nginx runs with hostNetwork, so the VM reaches Galaxy on its own port 80.
-    _gxy_api: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}"
-    _pvc_num: "{{ galaxy_persistence_size | regex_replace('^([0-9.]+).*$', '\\1') }}"
-    _pvc_unit: "{{ galaxy_persistence_size | regex_replace('^[0-9.]+\\s*', '') }}"
-    # Galaxy's parser wants GiB/MiB where Kubernetes writes Gi/Mi.
-    _gxy_unit: "{{ _pvc_unit if _pvc_unit.endswith('B') else _pvc_unit ~ 'B' }}"
-    # Single backslash: this is a folded scalar, where YAML leaves backslashes literal
-    # (unlike the double-quoted scalars above, which need `\\s`).
-    _derived_quota: >-
-      {{ ((_pvc_num | float) * (galaxy_user_quota_percent | float) / 100) | round(1) ~ ' ' ~ _gxy_unit
-         if galaxy_persistence_size is match('^[0-9.]+\s*[KMGTP]i?B?$') else '' }}
-    _quota_amount: "{{ galaxy_user_quota | default('', true) | ternary(galaxy_user_quota, _derived_quota) | trim }}"
-    # Evaluated lazily, so referencing the register from an earlier block task is safe.
-    _existing_quota: "{{ (_gxy_quotas.json | default([])) | selectattr('name', 'equalto', galaxy_user_quota_name) | list }}"
-  when:
-    - deploy_galaxy | default(true) | bool
-    - galaxy_set_user_quota | default(true) | bool
-    - _quota_amount | length > 0
-  block:
-    - name: Wait for the Galaxy API before setting the quota
-      ansible.builtin.uri:
-        url: "{{ _gxy_api }}/api/version"
-        timeout: 10
-      register: _gxy_version
-      until: _gxy_version.status | default(0) == 200
-      retries: 30
-      delay: 10
-      changed_when: false
-
-    - name: Look up the existing default user quota
-      ansible.builtin.uri:
-        url: "{{ _gxy_api }}/api/quotas"
-        headers:
-          x-api-key: "{{ galaxy_bootstrap_api_key }}"
-        timeout: 30
-      register: _gxy_quotas
-      changed_when: false
-
-    - name: Create the default user quota
-      ansible.builtin.uri:
-        url: "{{ _gxy_api }}/api/quotas"
-        method: POST
-        headers:
-          x-api-key: "{{ galaxy_bootstrap_api_key }}"
-        body_format: json
-        body:
-          name: "{{ galaxy_user_quota_name }}"
-          description: "Default quota for registered users, managed by galaxy-k8s-boot"
-          amount: "{{ _quota_amount }}"
-          operation: "="
-          default: registered
-        status_code: [200, 201]
-        timeout: 30
-      when: _existing_quota | length == 0
-
-    # Keep an existing quota in step with the current disk size, so relaunching onto a
-    # resized volume does not leave the dashboard reporting the old limit.
-    - name: Update the existing default user quota
-      ansible.builtin.uri:
-        url: "{{ _gxy_api }}/api/quotas/{{ _existing_quota[0].id }}"
-        method: PUT
-        headers:
-          x-api-key: "{{ galaxy_bootstrap_api_key }}"
-        body_format: json
-        body:
-          amount: "{{ _quota_amount }}"
-        status_code: [200, 201, 204]
-        timeout: 30
-      when: _existing_quota | length > 0
-
-    - name: Display the configured quota
-      debug:
-        msg: "Default user disk quota: {{ _quota_amount }} (from {{ 'galaxy_user_quota' if galaxy_user_quota | length > 0 else galaxy_user_quota_percent ~ '% of ' ~ galaxy_persistence_size }})"

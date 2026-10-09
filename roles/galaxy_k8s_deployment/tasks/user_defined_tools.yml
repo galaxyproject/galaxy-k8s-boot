@@ -2,94 +2,34 @@
 # Roles are database records, so enabling beta tool formats in Helm values is
 # insufficient. Keep this outside the post-install import hook: it must run on
 # upgrades and restores too, even when imports or user quota setup are disabled.
-- name: Configure UDT execution permission
-  vars:
-    _udt_api: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}"
+#
+# The grant is auxiliary, so a failure is reported without failing the boot.
+- name: Grant Galaxy's single user UDT execution permission
   block:
-    - name: Wait for the Galaxy API before configuring UDT permissions
-      ansible.builtin.uri:
-        url: "{{ _udt_api }}/api/version"
-        timeout: 10
-      register: _udt_version
-      until: _udt_version.status | default(0) == 200
-      retries: 30
-      delay: 10
-      changed_when: false
+    # galaxy_user can differ from Galaxy's single_user (Leonardo passes the
+    # workspace owner), and only single_user exists in Galaxy's database.
+    - name: Read Galaxy's configuration for its single user
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: galaxy-configs
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: _udt_galaxy_configs
 
-    # The unauthenticated request uses Galaxy's single-user session and creates
-    # that user if necessary. The API reports single_user as a boolean.
-    - name: Read Galaxy single-user configuration
-      ansible.builtin.uri:
-        url: "{{ _udt_api }}/api/configuration"
-        timeout: 30
-      register: _udt_configuration
-      changed_when: false
-
-    - name: Grant the configured single user UDT execution permission
-      when: _udt_configuration.json.single_user | default(false) | bool
+    - name: Grant the UDT execution role
+      ansible.builtin.include_tasks: user_defined_tools_grant.yml
       vars:
-        _udt_users: "{{ _udt_users_response.json | selectattr('email', 'equalto', galaxy_user) | list }}"
-        _udt_user: "{{ _udt_users | first }}"
-        _udt_active_role_ids: "{{ _udt_roles_response.json | map(attribute='id') | list }}"
-        # The user's roles endpoint includes soft-deleted roles. Intersect with
-        # the instance's active roles before deciding the grant already exists.
-        _udt_execution_roles: >-
-          {{ _udt_user_roles.json
-             | selectattr('type', 'equalto', 'user_tool_execute')
-             | selectattr('id', 'in', _udt_active_role_ids) | list }}
-      block:
-        - name: Look up the configured Galaxy user
-          ansible.builtin.uri:
-            url: "{{ _udt_api }}/api/users?f_email={{ galaxy_user | urlencode }}"
-            headers:
-              x-api-key: "{{ galaxy_bootstrap_api_key }}"
-            timeout: 30
-          register: _udt_users_response
-          changed_when: false
-          no_log: true
+        galaxy_single_user: >-
+          {{ ((_udt_galaxy_configs.resources[0].data['galaxy.yml'] | from_yaml).galaxy
+              | default({})).single_user | default('', true) }}
 
-        - name: Verify the configured Galaxy user exists
-          ansible.builtin.assert:
-            that: _udt_users | length == 1
-            fail_msg: "Expected exactly one Galaxy user matching galaxy_user."
-
-        - name: Read the user's existing roles
-          ansible.builtin.uri:
-            url: "{{ _udt_api }}/api/users/{{ _udt_user.id }}/roles"
-            headers:
-              x-api-key: "{{ galaxy_bootstrap_api_key }}"
-            timeout: 30
-          register: _udt_user_roles
-          changed_when: false
-          no_log: true
-
-        - name: Read active Galaxy roles
-          ansible.builtin.uri:
-            url: "{{ _udt_api }}/api/roles"
-            headers:
-              x-api-key: "{{ galaxy_bootstrap_api_key }}"
-            timeout: 30
-          register: _udt_roles_response
-          changed_when: false
-          no_log: true
-
-        - name: Create and assign the UDT execution role
-          ansible.builtin.uri:
-            url: "{{ _udt_api }}/api/roles"
-            method: POST
-            headers:
-              x-api-key: "{{ galaxy_bootstrap_api_key }}"
-            body_format: json
-            body:
-              # Role names are unique, including deleted and unassigned roles,
-              # which the API cannot list. A timestamp avoids reusing them.
-              name: "anvil-user-tools-{{ _udt_user.id }}-{{ now(utc=true, fmt='%Y%m%d%H%M%S') }}"
-              description: "User-defined tool execution managed by galaxy-k8s-boot"
-              role_type: user_tool_execute
-              user_ids:
-                - "{{ _udt_user.id }}"
-            status_code: [200, 201]
-            timeout: 30
-          when: _udt_execution_roles | length == 0
-          changed_when: true
-          no_log: true
+  rescue:
+    - name: Report that UDT execution permission could not be granted
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Galaxy's single user was not granted UDT execution permission
+          ({{ ansible_failed_task.name }}:
+          {{ ansible_failed_result.msg | default('see the task output above') }}).
+          Grant the Custom Tool Execution role in Galaxy's admin interface, or set
+          galaxy_grant_user_defined_tool_permissions=false to skip this step.

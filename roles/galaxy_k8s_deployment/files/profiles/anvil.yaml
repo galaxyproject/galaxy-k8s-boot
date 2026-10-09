@@ -1,5 +1,7 @@
 postInstallJob:
   enabled: true
+  # Fallback for multiuser imports; the playbook uses Galaxy's configured
+  # single_user instead on single-user deployments.
   galaxyUser: "default-user@galaxyproject.org"
   bootstrapConfig: |
     version: 1
