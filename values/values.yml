@@ -8,7 +8,7 @@ terra:
 
 image:
   repository: quay.io/galaxyproject/galaxy-min
-  tag: "26.1-auto"
+  tag: "26.2-auto@sha256:53d6e8bbc5ef594363d4034cd7613de1298be32eb47b330acfcfad5b3df50004"
 
 ingress:
   enabled: true
