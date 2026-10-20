@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   linting:
-    runs-on: ubuntu-latest
+    runs-on: gcp-runner
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -45,7 +45,7 @@ jobs:
 #          ansible-lint playbook.yml
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: gcp-runner
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5

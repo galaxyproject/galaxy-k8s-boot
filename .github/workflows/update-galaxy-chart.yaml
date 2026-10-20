@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   update-chart-version:
-    runs-on: ubuntu-latest
+    runs-on: gcp-runner
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
