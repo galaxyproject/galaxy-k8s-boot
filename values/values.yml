@@ -433,7 +433,7 @@ extraVolumeMounts:
     readOnly: true
 
 extraFileMappings:
-  /galaxy/server/config/job_resource_params_conf.xml:
+  /galaxy/server/config/job_resource_params_conf_disabled.xml:
     applyToWeb: true
     applyToJob: true
     applyToWorkflow: true
