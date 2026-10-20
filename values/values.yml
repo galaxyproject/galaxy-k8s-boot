@@ -97,7 +97,7 @@ configs:
       # Galaxy prefix, so a bare URL typed into the address bar arrives
       # without the headers the route requires.
       webhooks_dir: "config/plugins/webhooks,/galaxy/server/config/plugins/webhooks-custom"
-      # job_resource_params_file: "/galaxy/server/config/job_resource_params_conf.xml"
+      job_resource_params_file: "/galaxy/server/config/job_resource_params_conf.xml"
   job_conf.yml:
     runners:
       k8s:
@@ -433,7 +433,7 @@ extraVolumeMounts:
     readOnly: true
 
 extraFileMappings:
-  /galaxy/server/config/job_resource_params_conf_disabled.xml:
+  /galaxy/server/config/job_resource_params_conf.xml:
     applyToWeb: true
     applyToJob: true
     applyToWorkflow: true
