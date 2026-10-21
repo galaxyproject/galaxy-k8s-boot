@@ -366,6 +366,16 @@ jobs:
               - small-job
         gcp_batch:
           runner: gcp_batch
+          rules:
+            - id: rainstone_batch_spend_guard
+              if: "True"
+              execute: |
+                from galaxy.jobs.rules.rainstone_guard import paused
+                from tpv.core.mapper import TryNextDestinationOrWait
+                if paused():
+                    raise TryNextDestinationOrWait(
+                        "Batch spend limit reached; waiting for the limit to change."
+                    )
           scheduling:
             accept:
               - docker
@@ -416,12 +426,19 @@ extraVolumes:
       name: galaxy-webhook-k8s-monitor
   # The playbook creates this ConfigMap before Galaxy starts, only when it
   # deploys Rainstone; `optional` keeps Galaxy's pod startable without it.
+  - name: rainstone-dispatch
+    secret:
+      secretName: rainstone-dispatch
+      optional: true
   - name: webhook-rainstone
     configMap:
       name: galaxy-webhook-rainstone
       optional: true
 
 extraVolumeMounts:
+  - name: rainstone-dispatch
+    mountPath: /galaxy/server/config/rainstone-dispatch
+    readOnly: true
   - name: static-images
     mountPath: /galaxy/server/static/images
     readOnly: true
