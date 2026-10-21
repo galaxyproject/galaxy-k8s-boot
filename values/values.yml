@@ -72,6 +72,7 @@ configs:
       # The custom brand image source
       logo_src_secondary: /static/images/anvil-project-logo-white.png
       enable_quotas: true
+      enable_notification_system: true
       single_user: default-user@galaxyproject.org
       admin_users: default-user@galaxyproject.org
       # Retry stat'ing job outputs before giving up: outputs written by a remote
