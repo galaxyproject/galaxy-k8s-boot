@@ -82,12 +82,13 @@ Chart `0.4.0` requires Rainstone `2.0.0b2`. Merge and publish the Rainstone
 release before merging this playbook's chart-version update. Check the
 published chart and image, rather than relying on a local package.
 
-Galaxy 26.2's fair ready-job dispatch is required. Its selected image must
-also include the generic handler correction that catches mapper deferral
-while recovering a resubmitted job. Without it, one waiting retry aborts
-the handler poll before other ready jobs are processed. The correction is
-prepared in Galaxy commit `284a6a6dbd`; publication and inclusion in the
-selected Galaxy image are release blockers until reviewed.
+Galaxy 26.2's fair ready-job dispatch is required. The default AnVIL job
+configuration and shared TPV database define no resubmission rules, so
+this default deployment needs no Galaxy patch. Before adding resubmission
+rules, select a Galaxy image that catches mapper deferral while recovering
+a resubmitted job. Without that generic correction one waiting retry
+aborts the handler poll before other ready jobs are processed. The
+correction is prepared in Galaxy commit `284a6a6dbd`, pending review.
 
 The guard is best effort. It covers cumulative recorded Batch compute,
 including earlier costs, and excludes the Galaxy VM, disks and network.
