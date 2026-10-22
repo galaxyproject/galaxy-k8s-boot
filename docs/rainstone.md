@@ -12,8 +12,7 @@ settings come from what the playbook has just deployed; none needs to be set
 for the default deployment:
 
 - Galaxy's database, read with the application credential named by Galaxy's
-  CloudNativePG cluster. Rainstone changes nothing in Galaxy's database or
-  configuration.
+  CloudNativePG cluster. Rainstone changes nothing in Galaxy's database.
 - The shared Galaxy account: Galaxy's `single_user`, or `galaxy_user` when
   Galaxy names none.
 - Its address: `galaxy_prefix` followed by `/costs`, so it is routed wherever
@@ -26,6 +25,21 @@ for the default deployment:
 
 Cloud reads use the VM's existing credential. Rainstone needs no new IAM
 binding.
+
+## Batch spend limit
+
+With `enable_gcp_batch` on a single-user Galaxy, the playbook also enables
+Rainstone's Batch spend limit:
+
+- A TPV rule on the `gcp_batch` destination asks Rainstone whether Batch is
+  paused, using the `rainstone-dispatch` Secret. If Rainstone does not
+  answer, jobs are admitted.
+- Galaxy's `enable_notification_system` is on, so the collector can post
+  notices about the limit.
+- The collector receives the single user's Galaxy API key, in the
+  `rainstone-galaxy-control` Secret, to post notices and stop jobs.
+  Regenerating that key in Galaxy breaks this until the playbook runs
+  again; the limit page shows the failure.
 
 ## Variables
 

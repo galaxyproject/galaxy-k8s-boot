@@ -3,9 +3,9 @@
 #
 # Rainstone reports Galaxy's compute costs. It reads Galaxy's database with
 # Galaxy's existing application credential. The optional Batch guard also
-# provisions collector-only API access and a shared TPV dispatch credential. The values below are the
-# same description `rainstone discover` resolves on the VM, taken from what this
-# playbook just deployed.
+# provisions collector-only API access and a shared TPV dispatch credential.
+# The values below are the same description `rainstone discover` resolves on
+# the VM, taken from what this playbook just deployed.
 #
 # Rainstone is auxiliary, so a failure here is reported without failing the
 # boot unless rainstone_required is set.
