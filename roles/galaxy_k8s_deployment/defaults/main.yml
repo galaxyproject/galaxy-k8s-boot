@@ -288,7 +288,7 @@ monitor_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/monitor"
 # Galaxy's namespace and linked from its masthead. It reads Galaxy's database
 # with Galaxy's own application credential and changes nothing in Galaxy.
 rainstone_chart: cloudve/rainstone
-rainstone_chart_version: "0.3.0"
+rainstone_chart_version: "0.4.0"
 # Behind Galaxy's prefix, for the same reason as monitor_base_path.
 rainstone_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/costs"
 # Rainstone's instance identity. Keep it stable for a given Galaxy: a new slug

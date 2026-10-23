@@ -496,6 +496,12 @@
       - value: "ingress.path={{ galaxy_prefix }}"
       - value: "ingress.hosts[0].paths[0].path={{ galaxy_prefix }}"
     _helm_values_base:
+      extraFileMappings:
+        /galaxy/server/lib/galaxy/jobs/rules/rainstone_guard.py:
+          applyToWeb: true
+          applyToJob: true
+          applyToWorkflow: true
+          content: "{{ lookup('file', role_path ~ '/files/rainstone_guard.py') }}"
       # Rebuilding a cluster creates a new Helm release and runs post-install
       # hooks again. Restored databases already contain the profile's imports.
       # Single-user imports must target the account Galaxy actually creates.

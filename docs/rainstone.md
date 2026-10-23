@@ -12,8 +12,7 @@ settings come from what the playbook has just deployed; none needs to be set
 for the default deployment:
 
 - Galaxy's database, read with the application credential named by Galaxy's
-  CloudNativePG cluster. Rainstone changes nothing in Galaxy's database or
-  configuration.
+  CloudNativePG cluster. Rainstone changes nothing in Galaxy's database.
 - The shared Galaxy account: Galaxy's `single_user`, or `galaxy_user` when
   Galaxy names none.
 - Its address: `galaxy_prefix` followed by `/costs`, so it is routed wherever
@@ -27,12 +26,28 @@ for the default deployment:
 Cloud reads use the VM's existing credential. Rainstone needs no new IAM
 binding.
 
+## Batch spend limit
+
+With `enable_gcp_batch` on a single-user Galaxy, the playbook also enables
+Rainstone's Batch spend limit, available but inactive until the user sets
+a limit:
+
+- A TPV rule on the `gcp_batch` destination asks Rainstone whether Batch is
+  paused, using the `rainstone-dispatch` Secret. If Rainstone does not
+  answer, jobs are admitted.
+- Galaxy's `enable_notification_system` is on, so the collector can post
+  notices about the limit.
+- The collector receives the single user's Galaxy API key, in the
+  `rainstone-galaxy-control` Secret, to post notices and stop jobs.
+  Regenerating that key in Galaxy breaks this until the playbook runs
+  again; the limit page shows the failure.
+
 ## Variables
 
 ```yaml
 deploy_rainstone: true
 rainstone_chart: cloudve/rainstone
-rainstone_chart_version: "0.3.0"
+rainstone_chart_version: "0.4.0"
 rainstone_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/costs"
 # Rainstone's instance identity. Keep it stable for a given Galaxy: a new slug
 # starts a new reporting history.
@@ -60,3 +75,23 @@ own directory there and never shares Galaxy's data directory.
 
 `restore_galaxy` does not restore Rainstone's database yet. On a new VM its
 volume is provisioned afresh, and reporting history starts over.
+
+## Release prerequisites
+
+Chart `0.4.0` requires Rainstone `2.0.0b2`. Merge and publish the Rainstone
+release before merging this playbook's chart-version update. Check the
+published chart and image, rather than relying on a local package.
+
+Galaxy 26.2's fair ready-job dispatch is required. The default AnVIL job
+configuration and shared TPV database define no resubmission rules, so
+this default deployment needs no Galaxy patch. Before adding resubmission
+rules, select a Galaxy image that catches mapper deferral while recovering
+a resubmitted job. Without that generic correction one waiting retry
+aborts the handler poll before other ready jobs are processed. The
+correction is prepared in Galaxy commit `284a6a6dbd`, pending review.
+
+The guard is best effort. It covers cumulative recorded Batch compute,
+including earlier costs, and excludes the Galaxy VM, disks and network.
+It uses a ten-minute reaction allowance plus observation age and a $0.25
+minimum margin. Turning a limit off releases waiting Batch jobs; stop
+requests already sent continue to be checked and cannot be undone.

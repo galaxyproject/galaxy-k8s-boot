@@ -1,0 +1,49 @@
+---
+- name: Resolve the shared Galaxy account for collector control
+  ansible.builtin.uri:
+    url: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}/api/users?f_email={{ _rainstone_owner | urlencode }}"
+    headers:
+      x-api-key: "{{ galaxy_bootstrap_api_key }}"
+    return_content: true
+    timeout: 30
+  register: _rainstone_control_users
+  no_log: true
+
+- name: Require one Galaxy account for collector control
+  ansible.builtin.assert:
+    that:
+      - _rainstone_control_users.json | length == 1
+  no_log: true
+
+- name: Provision the collector's ordinary Galaxy API credential
+  ansible.builtin.uri:
+    url: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}/api/users/{{ _rainstone_control_users.json[0].id }}/api_key"
+    headers:
+      x-api-key: "{{ galaxy_bootstrap_api_key }}"
+    return_content: true
+    timeout: 30
+  register: _rainstone_control_key
+  no_log: true
+
+- name: Verify the collector credential has administrator authority
+  ansible.builtin.uri:
+    url: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}/api/job_lock"
+    headers:
+      x-api-key: "{{ _rainstone_control_key.json }}"
+    timeout: 30
+  no_log: true
+
+- name: Store the collector-only Galaxy credential
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: rainstone-galaxy-control
+        namespace: galaxy
+      type: Opaque
+      stringData:
+        api-key: "{{ _rainstone_control_key.json }}"
+  no_log: true
+

@@ -72,6 +72,7 @@ configs:
       # The custom brand image source
       logo_src_secondary: /static/images/anvil-project-logo-white.png
       enable_quotas: true
+      enable_notification_system: true
       single_user: default-user@galaxyproject.org
       admin_users: default-user@galaxyproject.org
       # Retry stat'ing job outputs before giving up: outputs written by a remote
@@ -366,6 +367,16 @@ jobs:
               - small-job
         gcp_batch:
           runner: gcp_batch
+          rules:
+            - id: rainstone_batch_spend_guard
+              if: "True"
+              execute: |
+                from galaxy.jobs.rules.rainstone_guard import paused
+                from tpv.core.mapper import TryNextDestinationOrWait
+                if paused():
+                    raise TryNextDestinationOrWait(
+                        "Batch spend limit reached; waiting for the limit to change."
+                    )
           scheduling:
             accept:
               - docker
@@ -414,6 +425,12 @@ extraVolumes:
   - name: webhook-k8s-monitor
     configMap:
       name: galaxy-webhook-k8s-monitor
+  # The playbook creates this Secret only when it deploys Rainstone;
+  # without it the TPV guard admits every Batch job.
+  - name: rainstone-dispatch
+    secret:
+      secretName: rainstone-dispatch
+      optional: true
   # The playbook creates this ConfigMap before Galaxy starts, only when it
   # deploys Rainstone; `optional` keeps Galaxy's pod startable without it.
   - name: webhook-rainstone
@@ -422,6 +439,9 @@ extraVolumes:
       optional: true
 
 extraVolumeMounts:
+  - name: rainstone-dispatch
+    mountPath: /galaxy/server/config/rainstone-dispatch
+    readOnly: true
   - name: static-images
     mountPath: /galaxy/server/static/images
     readOnly: true

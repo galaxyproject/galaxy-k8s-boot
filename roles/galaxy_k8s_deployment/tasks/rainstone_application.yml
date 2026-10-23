@@ -2,10 +2,10 @@
 # Rainstone Application Setup Tasks
 #
 # Rainstone reports Galaxy's compute costs. It reads Galaxy's database with
-# Galaxy's existing application credential and changes nothing in Galaxy: no
-# schema, role, IAM binding or Galaxy configuration. The values below are the
-# same description `rainstone discover` resolves on the VM, taken from what this
-# playbook just deployed.
+# Galaxy's existing application credential. The optional Batch guard also
+# provisions collector-only API access and a shared TPV dispatch credential.
+# The values below are the same description `rainstone discover` resolves on
+# the VM, taken from what this playbook just deployed.
 #
 # Rainstone is auxiliary, so a failure here is reported without failing the
 # boot unless rainstone_required is set.
@@ -54,6 +54,9 @@
 
     - name: Resolve the Rainstone deployment description
       ansible.builtin.set_fact:
+        _rainstone_guard_enabled: >-
+          {{ enable_gcp_batch | default(false) | bool and
+             _galaxy_config.single_user | default('') | length > 0 }}
         _rainstone_owner: "{{ _galaxy_config.single_user | default(rainstone_workspace_owner, true) }}"
         _rainstone_source: "{{ rainstone_source_clusters.resources[0] }}"
         # Metadata answers only on GCP; without it no baseline is declared.
@@ -84,6 +87,35 @@
           Rainstone's workspace profile reports one shared account.
       when: _rainstone_owner | length == 0
 
+    - name: Look up the Rainstone dispatch credential
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: rainstone-dispatch
+        namespace: galaxy
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: _rainstone_dispatch_secret
+      no_log: true
+
+    - name: Provision the Rainstone dispatch credential once
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: rainstone-dispatch
+            namespace: galaxy
+          type: Opaque
+          stringData:
+            token: "{{ lookup('password', '/dev/null', length=64, chars=['ascii_letters', 'digits']) }}"
+      when: _rainstone_dispatch_secret.resources | length == 0
+      no_log: true
+
+    - name: Provision collector control for the single-user Batch guard
+      ansible.builtin.include_tasks: rainstone_control.yml
+      when: _rainstone_guard_enabled | bool
+
     - name: Helm install Rainstone
       kubernetes.core.helm:
         name: rainstone
@@ -104,6 +136,11 @@
           # galaxy_application.yml.
           galaxyWebhook:
             enabled: false
+          spendGuard:
+            enabled: "{{ _rainstone_guard_enabled | bool }}"
+            stateSecret: rainstone-dispatch
+            galaxyUrl: "http://galaxy-nginx:8000{{ galaxy_prefix | regex_replace('/$', '') }}"
+            galaxySecret: "{{ 'rainstone-galaxy-control' if _rainstone_guard_enabled | bool else '' }}"
           auth:
             mode: anvil-workspace
             workspaceOwner: "{{ _rainstone_owner }}"
