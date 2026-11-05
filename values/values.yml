@@ -171,9 +171,6 @@ configs:
         id: __SET_METADATA__
       - environment: local
         id: __EXTRACT_DATASET__
-      # Route interactive tools to Kubernetes
-      - environment: local
-        id: interactive_tool.*
       # Route data source tools to Kubernetes
       - environment: local
         id: .*data_source.*
@@ -363,6 +360,9 @@ jobs:
             accept:
               - docker
               - tool_type_user_defined
+              # Interactive tools require this tag (mixins/vscode-it.yml): only k8s
+              # can create the Service + Ingress an IT needs, never GCP Batch.
+              - interactive
             prefer:
               - small-job
         gcp_batch:

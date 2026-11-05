@@ -222,6 +222,15 @@ galaxy_import_profile:
 galaxy_job_max_cores: 1
 galaxy_job_max_mem: 4
 
+# Interactive Tools (path-based, e.g. VS Code). Appends the values files below to
+# galaxy_values_files for launchers that cannot pass values files themselves
+# (Leonardo on Terra); bin/launch_vm.sh users can equally pass -f mixins/vscode-it.yml.
+# Path-based ITs are served under Galaxy's own host and prefix, so no DNS or
+# certificate setup is needed. See mixins/vscode-it.yml.
+enable_interactive_tools: false
+interactive_tools_values_files:
+  - "mixins/vscode-it.yml"
+
 # GCP Batch Configuration
 # Set enable_gcp_batch=true to configure Galaxy for GCP Batch job runner
 # This will:
