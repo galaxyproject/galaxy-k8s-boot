@@ -1,0 +1,168 @@
+# VS Code as a PATH-BASED Galaxy Interactive Tool (OpenVSCode Server).
+#
+# Path-based means every IT is served under Galaxy's own host and prefix:
+#   https://<galaxy host><galaxy_prefix>/its/ep/<id>/<token>/
+# so it needs no per-IT hostname, wildcard DNS or wildcard certificate. That is the
+# only layout that can work behind Leonardo on Terra, where Galaxy lives at a long
+# path under a shared proxy host and nothing can hang a subdomain off it.
+#
+# Galaxy's KubernetesJobRunner creates one Ingress per running IT with that path.
+# ingress-nginx matches the longest path first, so the IT Ingress wins over Galaxy's
+# own prefix Ingress and the request is forwarded to the IT pod with the FULL path.
+# Nothing strips the prefix, which is why this uses OpenVSCode Server
+# (--server-base-path) rather than code-server, which can only live at a stripped
+# subpath and answers 400/404 otherwise.
+#
+# Select it with:  bin/launch_vm.sh ... -f values/values.yml -f mixins/vscode-it.yml
+# or set enable_interactive_tools=true, which appends this file for launchers that
+# cannot pass values files (Leonardo).
+#
+# NOTE: mixins are copied to the VM RAW and handed to Helm -- `{{ }}` below is HELM
+# templating (rendered by the chart's `tpl`), NOT Ansible.
+
+configs:
+  galaxy.yml:
+    galaxy:
+      interactivetools_enable: true
+      # EMPTY on purpose. The runner builds every IT Ingress with
+      # `host: <interactivetools_proxy_host>`; the chart defaults it to the ingress
+      # host, which this deployment leaves unset, so it renders as "localhost" and the
+      # IT Ingress never matches a real request. An empty host matches every host,
+      # like Galaxy's own Ingress here. It also makes Galaxy hand the browser a
+      # RELATIVE IT URL (the request host is reused), which is exactly what a proxied
+      # deployment needs -- the Leonardo host and prefix are preserved.
+      interactivetools_proxy_host: ""
+      # interactivetools_base_path is left to the chart: it tracks the ingress path,
+      # which the playbook sets to galaxy_prefix, so the IT path lands under the
+      # same prefix the external proxy forwards.
+      #
+      # The chart default is a RELATIVE path, which Galaxy resolves against the
+      # pod-local server root rather than the shared data dir. The web and job
+      # handlers then keep separate map files and stopping an IT fails with
+      # "no such table: gxitproxy". Pin it to the shared volume.
+      interactivetools_map: /galaxy/server/database/interactivetools_map.sqlite
+      # Chart default (verbatim, so the standard + shed confs are preserved -- the chart
+      # tpl-renders this, hence the {{if}}) + the interactive tool conf added below.
+      tool_config_file: "/galaxy/server/config/tool_conf.xml{{if .Values.setupJob.downloadToolConfs.enabled}},{{ .Values.setupJob.downloadToolConfs.volume.mountPath }}/config/shed_tool_conf.xml{{end}},/galaxy/server/config/interactive_tool_conf.xml"
+  job_conf.yml:
+    runners:
+      k8s:
+        # No per-IT TLS block: ingress-nginx already serves 443 for every host with
+        # the controller's default certificate (the Leonardo-injected pair when
+        # present). With the chart default (true) and no TLS secret the runner would
+        # emit a tls entry with an empty host and an empty secret name.
+        k8s_interactivetools_use_ssl: false
+        # The chart copies Galaxy's ingress annotations onto every IT Ingress,
+        # including cert-manager's cluster-issuer. Replace them with the long
+        # timeouts a WebSocket-heavy IDE needs.
+        k8s_interactivetools_ingress_annotations: |
+          nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+          nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+          nginx.ingress.kubernetes.io/proxy-body-size: "1G"
+
+jobs:
+  rules:
+    tpv_rules_local.yml:
+      tools:
+        # Pin every interactive tool to the k8s destination: it is the only one that
+        # can create the Service + Ingress an IT needs. The k8s destination carries the
+        # matching `interactive` accept tag in values/values.yml; GCP Batch does not.
+        interactive_tool_.*:
+          scheduling:
+            require:
+              - interactive
+
+extraFileMappings:
+  # The tool definition. Placed in Galaxy's tool_path (/galaxy/server/database/tools)
+  # beside the bundled ITs, so the tool_conf below resolves it as interactive/vscode.xml.
+  /galaxy/server/database/tools/interactive/vscode.xml:
+    applyToJob: true       # the handler that dispatches the IT pod loads the toolbox
+    applyToWeb: true       # the web handler renders/serves the tool panel
+    applyToWorkflow: true  # keep every toolbox-loading pod consistent
+    applyToNginx: false
+    applyToSetupJob: false
+    useSecret: false
+    tpl: false
+    content: |
+      <tool id="interactive_tool_vscode" tool_type="interactive" name="VS Code" version="1.105.1" profile="23.0">
+          <description>Visual Studio Code in the browser (OpenVSCode Server)</description>
+          <requirements>
+              <container type="docker">gitpod/openvscode-server:1.105.1</container>
+          </requirements>
+          <entry_points>
+              <!-- Path-based: served under Galaxy's own host and prefix, no subdomain,
+                   so no wildcard DNS or certificate is needed (works behind Leonardo). -->
+              <entry_point name="VS Code" label="vscode" requires_domain="False" requires_path_in_url="True">
+                  <port>3000</port>
+                  <url>/</url>
+              </entry_point>
+          </entry_points>
+          <environment_variables>
+              <!-- Galaxy fills in the full path it will route to this entry point,
+                   e.g. /galaxy/its/ep/<id>/<token>/. The server must serve from it,
+                   because the Ingress forwards the request path unchanged. -->
+              <environment_variable name="EP_PATH" inject="entry_point_path_for_label">vscode</environment_variable>
+          </environment_variables>
+          <!-- The k8s runner overrides the image entrypoint (command=[sh] args=[-c, job_file]),
+               so the tool command IS the launch. The pod runs as Galaxy's job uid (not the
+               image's user), so HOME and all server state live in the job working directory,
+               which is writable and on the shared volume. -->
+          <command><![CDATA[
+              export HOME="\$(pwd)/home" &&
+              mkdir -p "\$HOME" workspace/inputs workspace/outputs &&
+              #import re
+              #if $inputs and str($inputs) != 'None'
+                  #for $d in $inputs
+                      #set $name = re.sub('[^\w\-.]', '_', str($d.element_identifier))
+                      #if not $name.endswith('.' + str($d.ext))
+                          #set $name = $name + '.' + str($d.ext)
+                      #end if
+                      ln -sf '$d' 'workspace/inputs/$name' &&
+                  #end for
+              #end if
+              /home/.openvscode-server/bin/openvscode-server
+                  --host 0.0.0.0
+                  --port 3000
+                  --without-connection-token
+                  --server-base-path "\$EP_PATH"
+                  --server-data-dir "\$HOME/server"
+                  --user-data-dir "\$HOME/data"
+                  --extensions-dir "\$HOME/ext"
+                  --disable-telemetry
+                  --default-folder "\$(pwd)/workspace"
+          ]]></command>
+          <inputs>
+              <param name="inputs" type="data" multiple="true" optional="true"
+                     label="Datasets to make available in the workspace"
+                     help="Linked read-only under workspace/inputs/. Save anything you want back in Galaxy under workspace/outputs/."/>
+          </inputs>
+          <outputs>
+              <collection name="outputs" type="list" label="VS Code outputs">
+                  <discover_datasets pattern="__designation_and_ext__" directory="workspace/outputs" visible="false"/>
+              </collection>
+          </outputs>
+          <help><![CDATA[
+      Launches Visual Studio Code (OpenVSCode Server) as a Galaxy Interactive Tool.
+
+      Selected datasets are linked read-only under ``workspace/inputs/``. Files saved
+      under ``workspace/outputs/`` with a file extension (for example ``notes.txt``)
+      are imported into your history as a collection when the tool is stopped.
+          ]]></help>
+      </tool>
+
+  # Adds the tool to the toolbox. Referenced by tool_config_file above.
+  /galaxy/server/config/interactive_tool_conf.xml:
+    applyToJob: true
+    applyToWeb: true
+    applyToWorkflow: true
+    applyToNginx: false
+    applyToSetupJob: false
+    useSecret: false
+    tpl: false
+    content: |
+      <?xml version="1.0"?>
+      <toolbox monitor="true">
+        <section id="interactive_custom" name="Interactive Tools">
+          <tool file="interactive/vscode.xml" />
+        </section>
+      </toolbox>
