@@ -121,6 +121,12 @@ letsencrypt_issuer_name: "letsencrypt-prod"
 # (https://acme-staging-v02.api.letsencrypt.org/directory) to dry-run the flow.
 letsencrypt_server: "https://acme-v02.api.letsencrypt.org/directory"
 tls_secret_name: "galaxy-tls"
+# URL the playbook uses to reach Galaxy from the VM itself (quota, UDT grant,
+# Rainstone control). ingress-nginx runs with hostNetwork, so plain http on
+# 127.0.0.1 works while the Galaxy Ingress has no host. Once galaxy_hostname is
+# set the Ingress only answers for that Host and redirects http to https, so
+# talk to the public HTTPS URL instead (the VM can reach its own external IP).
+galaxy_api_url: "{{ ('https://' ~ galaxy_hostname) if (galaxy_hostname | default('') | length > 0) else 'http://127.0.0.1' }}{{ galaxy_prefix | regex_replace('/$', '') }}"
 
 # CNPG Skip-Initdb Plugin Configuration
 # Enable this to allow PostgreSQL to reuse existing data directories

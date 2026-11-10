@@ -3,7 +3,7 @@
 # configuration, the role that lets it run user-defined tools.
 - name: Configure UDT execution permission
   vars:
-    _udt_api: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}"
+    _udt_api: "{{ galaxy_api_url }}"
   block:
     - name: Wait for the Galaxy API before configuring UDT permissions
       ansible.builtin.uri:

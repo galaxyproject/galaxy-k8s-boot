@@ -5,8 +5,7 @@
 # "unlimited", which is misleading on a VM backed by a fixed-size disk.
 - name: Configure the default user disk quota
   vars:
-    # ingress-nginx runs with hostNetwork, so the VM reaches Galaxy on its own port 80.
-    _gxy_api: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}"
+    _gxy_api: "{{ galaxy_api_url }}"
     _pvc_num: "{{ galaxy_persistence_size | regex_replace('^([0-9.]+).*$', '\\1') }}"
     _pvc_unit: "{{ galaxy_persistence_size | regex_replace('^[0-9.]+\\s*', '') }}"
     # Galaxy's parser wants GiB/MiB where Kubernetes writes Gi/Mi.
