@@ -104,6 +104,24 @@ require_mounted_storage: true
 setup_cert_manager: false
 cert_manager_version: "v1.20.0"
 
+# HTTPS / TLS Configuration (Let's Encrypt via cert-manager)
+# When galaxy_hostname is set, Galaxy is served over HTTPS at that FQDN: the Galaxy
+# ingress gets the host + a TLS block (secret tls_secret_name), and a Let's Encrypt
+# ClusterIssuer is created so cert-manager provisions/renews the cert via an HTTP-01
+# challenge. Requires DNS for galaxy_hostname -> the VM's public IP (use a reserved
+# static IP), ports 80/443 reachable, and cert-manager (auto-installed when
+# galaxy_hostname is set). Empty -> plain HTTP on the VM IP (unchanged default).
+galaxy_hostname: ""
+# ACME account email (Let's Encrypt expiry/renewal notices). Required when
+# galaxy_hostname is set.
+acme_email: ""
+letsencrypt_issuer_name: "letsencrypt-prod"
+# Let's Encrypt ACME directory. Production issues browser-trusted certs but is
+# rate-limited (~5 duplicate failures/domain/week); switch to the staging URL
+# (https://acme-staging-v02.api.letsencrypt.org/directory) to dry-run the flow.
+letsencrypt_server: "https://acme-v02.api.letsencrypt.org/directory"
+tls_secret_name: "galaxy-tls"
+
 # CNPG Skip-Initdb Plugin Configuration
 # Enable this to allow PostgreSQL to reuse existing data directories
 # Requires: cert-manager installed in the cluster

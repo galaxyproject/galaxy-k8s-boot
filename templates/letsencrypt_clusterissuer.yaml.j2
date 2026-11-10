@@ -1,0 +1,19 @@
+# Let's Encrypt ClusterIssuer for automatic TLS on the Galaxy ingress.
+# Applied only when galaxy_hostname is set (see ingress_setup.yml). cert-manager
+# solves the ACME HTTP-01 challenge by publishing a temporary route through the
+# nginx ingress class, so DNS for galaxy_hostname must resolve to this VM's public
+# IP and ports 80/443 must be reachable from the internet.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ letsencrypt_issuer_name }}
+spec:
+  acme:
+    server: {{ letsencrypt_server }}
+    email: {{ acme_email }}
+    privateKeySecretRef:
+      name: {{ letsencrypt_issuer_name }}-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
