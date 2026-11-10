@@ -68,6 +68,12 @@ jobs:
         # can create the Service + Ingress an IT needs. The k8s destination carries the
         # matching `interactive` accept tag in values/values.yml; GCP Batch does not.
         interactive_tool_.*:
+          params:
+            # What $__galaxy_url__ (GALAXY_URL in the tool) resolves to for IT jobs:
+            # Galaxy's own nginx Service, reached from inside the cluster. The public
+            # URL is wrong here. On a plain VM it is unset, and on Terra it points at
+            # the Leonardo proxy, which only admits browser sessions.
+            galaxy_infrastructure_url: 'http://{{ include "galaxy.fullname" . }}-nginx:{{ .Values.service.port }}{{ .Values.ingress.path }}'
           scheduling:
             require:
               - interactive
@@ -85,9 +91,13 @@ extraFileMappings:
     tpl: false
     content: |
       <tool id="interactive_tool_vscode" tool_type="interactive" name="VS Code" version="1.105.1" profile="23.0">
-          <description>Visual Studio Code in the browser (OpenVSCode Server)</description>
+          <description>Visual Studio Code in the browser</description>
           <requirements>
-              <container type="docker">gitpod/openvscode-server:1.105.1</container>
+              <!-- gitpod/openvscode-server plus python3/bioblend/ipykernel, R with
+                   languageserver/IRkernel, micromamba, the Google Cloud CLI, the Python,
+                   Jupyter and R extensions, start.sh and the galaxy-get/galaxy-put
+                   helpers. Built from docker/vscode-it. -->
+              <container type="docker">ksuderman/galaxy-vscode:1.105.1-2</container>
           </requirements>
           <entry_points>
               <!-- Path-based: served under Galaxy's own host and prefix, no subdomain,
@@ -102,14 +112,19 @@ extraFileMappings:
                    e.g. /galaxy/its/ep/<id>/<token>/. The server must serve from it,
                    because the Ingress forwards the request path unchanged. -->
               <environment_variable name="EP_PATH" inject="entry_point_path_for_label">vscode</environment_variable>
+              <!-- Galaxy access from the integrated terminal (bioblend, galaxy-get,
+                   galaxy-put). GALAXY_URL is the in-cluster endpoint set by the TPV rule
+                   above; API_KEY is created for the user if they have none. -->
+              <environment_variable name="GALAXY_URL">$__galaxy_url__</environment_variable>
+              <environment_variable name="API_KEY" inject="api_key" />
+              <environment_variable name="HISTORY_ID">$__history_id__</environment_variable>
           </environment_variables>
           <!-- The k8s runner overrides the image entrypoint (command=[sh] args=[-c, job_file]),
                so the tool command IS the launch. The pod runs as Galaxy's job uid (not the
-               image's user), so HOME and all server state live in the job working directory,
-               which is writable and on the shared volume. -->
+               image's user), so start.sh points HOME and all server state at the job working
+               directory, which is writable and on the shared volume. -->
           <command><![CDATA[
-              export HOME="\$(pwd)/home" &&
-              mkdir -p "\$HOME" workspace/inputs workspace/outputs &&
+              mkdir -p workspace/inputs &&
               #import re
               #if $inputs and str($inputs) != 'None'
                   #for $d in $inputs
@@ -120,16 +135,7 @@ extraFileMappings:
                       ln -sf '$d' 'workspace/inputs/$name' &&
                   #end for
               #end if
-              /home/.openvscode-server/bin/openvscode-server
-                  --host 0.0.0.0
-                  --port 3000
-                  --without-connection-token
-                  --server-base-path "\$EP_PATH"
-                  --server-data-dir "\$HOME/server"
-                  --user-data-dir "\$HOME/data"
-                  --extensions-dir "\$HOME/ext"
-                  --disable-telemetry
-                  --default-folder "\$(pwd)/workspace"
+              exec /opt/galaxy-vscode/start.sh
           ]]></command>
           <inputs>
               <param name="inputs" type="data" multiple="true" optional="true"
@@ -147,6 +153,13 @@ extraFileMappings:
       Selected datasets are linked read-only under ``workspace/inputs/``. Files saved
       under ``workspace/outputs/`` with a file extension (for example ``notes.txt``)
       are imported into your history as a collection when the tool is stopped.
+
+      The integrated terminal has ``python3`` with ``bioblend``, ``R`` with the language
+      server and an IRkernel for notebooks, ``micromamba`` for conda packages, ``git``
+      and the Google Cloud CLI. ``GALAXY_URL``, ``API_KEY`` and
+      ``HISTORY_ID`` are set, and ``galaxy-get <dataset>`` / ``galaxy-put <file>`` move
+      data between the history and the workspace. The workspace ``README.md`` has the
+      details.
           ]]></help>
       </tool>
 
