@@ -18,10 +18,10 @@
 #   - start.sh, which sets up HOME, the workspace README and the server flags, and
 #     the galaxy-get / galaxy-put helpers
 #
-# Galaxy's Kubernetes runner ignores the image's USER and ENTRYPOINT: the pod runs
-# as the Galaxy job uid with the tool command as its script, so everything the
-# tool needs at runtime must be world-readable, and anything written must go
-# under the job working directory (start.sh points HOME there).
+# Galaxy runs the pod/container as the Galaxy job uid with the tool command as
+# its script, so everything the tool needs at runtime must be world-readable, and
+# anything written must go under the job working directory (start.sh points HOME
+# there).
 
 ARG OPENVSCODE_VERSION=1.105.1
 FROM gitpod/openvscode-server:${OPENVSCODE_VERSION}
@@ -107,10 +107,13 @@ RUN python3 -c "import bioblend, ipykernel" \
 
 USER openvscode-server
 
-# The base image's ENTRYPOINT launches the stock server with its own flags, so a
-# command passed to `docker run` would be appended to it rather than replace it.
-# Galaxy's runner sets command and args explicitly and is unaffected; for direct
-# use the image runs start.sh, which needs EP_PATH set and a writable cwd:
+# No ENTRYPOINT. Galaxy's Docker runner starts the container as
+# `docker run ... <image> /bin/sh tool_script.sh` without --entrypoint, so an
+# entrypoint would swallow the tool script (no input links, no EP_PATH) and the
+# base image's own entrypoint would append it to the stock server's flags. The
+# Kubernetes runner sets command/args explicitly and does not care either way.
+# A bare `docker run` with no command still starts the server via CMD; it needs
+# EP_PATH set and a writable cwd:
 #   docker run -e EP_PATH=/galaxy/its/ep/1/t/ -w /jobdir -v $PWD:/jobdir -p 3000:3000 <image>
-ENTRYPOINT ["/opt/galaxy-vscode/start.sh"]
-CMD []
+ENTRYPOINT []
+CMD ["/opt/galaxy-vscode/start.sh"]

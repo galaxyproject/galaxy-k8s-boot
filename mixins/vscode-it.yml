@@ -97,7 +97,7 @@ extraFileMappings:
                    languageserver/IRkernel, micromamba, the Google Cloud CLI, the Python,
                    Jupyter and R extensions, start.sh and the galaxy-get/galaxy-put
                    helpers. Built from docker/vscode-it. -->
-              <container type="docker">ksuderman/galaxy-vscode:1.105.1-2</container>
+              <container type="docker">ksuderman/galaxy-vscode:1.105.1-3</container>
           </requirements>
           <entry_points>
               <!-- Path-based: served under Galaxy's own host and prefix, no subdomain,
