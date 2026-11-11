@@ -1,9 +1,15 @@
 ---
 # Grants galaxy_single_user, which user_defined_tools.yml reads from Galaxy's
-# configuration, the role that lets it run user-defined tools.
-- name: Configure UDT execution permission
+# configuration, the roles that let it create and run user-defined tools.
+- name: Configure UDT permissions
   vars:
     _udt_api: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}"
+    # Galaxy's role types for user-defined tools (galaxy.model.Role.types).
+    # The API only enforces user_tool_execute today; user_tool_create is granted
+    # as well so the user keeps authoring tools once Galaxy starts checking it.
+    _udt_role_types:
+      - user_tool_create
+      - user_tool_execute
   block:
     - name: Wait for the Galaxy API before configuring UDT permissions
       ansible.builtin.uri:
@@ -24,18 +30,18 @@
       register: _udt_configuration
       changed_when: false
 
-    - name: Grant the configured single user UDT execution permission
+    - name: Grant the configured single user UDT permissions
       when: _udt_configuration.json.single_user | default(false) | bool
       vars:
         _udt_users: "{{ _udt_users_response.json | selectattr('email', 'equalto', galaxy_single_user) | list }}"
         _udt_user: "{{ _udt_users | first }}"
         _udt_active_role_ids: "{{ _udt_roles_response.json | map(attribute='id') | list }}"
         # The user's roles endpoint includes soft-deleted roles. Intersect with
-        # the instance's active roles before deciding the grant already exists.
-        _udt_execution_roles: >-
+        # the instance's active roles before deciding which grants already exist.
+        _udt_granted_types: >-
           {{ _udt_user_roles.json
-             | selectattr('type', 'equalto', 'user_tool_execute')
-             | selectattr('id', 'in', _udt_active_role_ids) | list }}
+             | selectattr('id', 'in', _udt_active_role_ids)
+             | map(attribute='type') | list }}
       block:
         - name: Look up the configured Galaxy user
           ansible.builtin.uri:
@@ -72,7 +78,7 @@
           changed_when: false
           no_log: true
 
-        - name: Create and assign the UDT execution role
+        - name: Create and assign the missing UDT roles
           ansible.builtin.uri:
             url: "{{ _udt_api }}/api/roles"
             method: POST
@@ -81,14 +87,16 @@
             body_format: json
             body:
               # Role names are unique, including deleted and unassigned roles,
-              # which the API cannot list. A timestamp avoids reusing them.
-              name: "anvil-user-tools-{{ _udt_user.id }}-{{ now(utc=true, fmt='%Y%m%d%H%M%S') }}"
-              description: "User-defined tool execution managed by galaxy-k8s-boot"
-              role_type: user_tool_execute
+              # which the API cannot list. A timestamp avoids reusing them, and
+              # the type keeps the two roles created in the same second apart.
+              name: "anvil-user-tools-{{ item | regex_replace('^user_tool_', '') }}-{{ _udt_user.id }}-{{ now(utc=true, fmt='%Y%m%d%H%M%S') }}"
+              description: "User-defined tool {{ item | regex_replace('^user_tool_', '') }} permission managed by galaxy-k8s-boot"
+              role_type: "{{ item }}"
               user_ids:
                 - "{{ _udt_user.id }}"
             status_code: [200, 201]
             timeout: 30
-          when: _udt_execution_roles | length == 0
+          loop: "{{ _udt_role_types }}"
+          when: item not in _udt_granted_types
           changed_when: true
           no_log: true
