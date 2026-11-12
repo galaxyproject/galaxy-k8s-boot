@@ -490,7 +490,7 @@
     update_repo_cache: "{{ not (use_local_chart | default(false) | bool) }}"
     timeout: "20m0s"
     values_files: "{{ lookup('sequence', 'start=0 end=' ~ (_galaxy_values_files|length - 1) ~ ' format=/tmp/galaxy_values_%d.yml', wantlist=True) }}"
-    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_network if (enable_gcp_batch | default(false) | bool and gcp_batch_network | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_subnet if (enable_gcp_batch | default(false) | bool and gcp_batch_subnet | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_forwarded_proto if (ingress_use_forwarded_headers | default(false) | bool) else {}, recursive=True) | combine(_helm_values_client_auth if (_ingress_tls_client_ca | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy | bool) else {}, recursive=True) }}"
+    values: "{{ _helm_values_base | combine(_helm_values_gcp_project if (enable_gcp_batch | default(false) | bool and gcp_project_id | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_batch if (enable_gcp_batch | default(false) | bool and gcp_batch_region | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_network if (enable_gcp_batch | default(false) | bool and gcp_batch_network | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_gcp_subnet if (enable_gcp_batch | default(false) | bool and gcp_batch_subnet | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_forwarded_proto if (ingress_use_forwarded_headers | default(false) | bool) else {}, recursive=True) | combine(_helm_values_client_auth if (_ingress_tls_client_ca | default('') | length > 0) else {}, recursive=True) | combine(_helm_values_cnpg_plugin if (restore_galaxy | bool) else {}, recursive=True) | combine(_helm_values_tls if (galaxy_hostname | default('') | length > 0) else {}, recursive=True) }}"
     set_values: "{{ galaxy_helm_extra_sets | default([]) + _helm_prefix_sets }}"
   vars:
     _helm_prefix_sets:
@@ -598,6 +598,33 @@
           nginx.ingress.kubernetes.io/auth-tls-secret: "galaxy/{{ ingress_tls_client_ca_secret }}"
           nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
           nginx.ingress.kubernetes.io/auth-tls-verify-depth: "{{ ingress_tls_client_verify_depth | string }}"
+    # HTTPS at galaxy_hostname, for VMs reached directly (Terra terminates TLS in
+    # Leonardo and never sets this). The Galaxy Ingress names the FQDN and carries a
+    # TLS block that cert-manager fills through the Let's Encrypt ClusterIssuer
+    # (ingress_setup.yml), and Galaxy learns its public URL. ingress-nginx routes by
+    # Host before path, so once the Galaxy Ingress names a host, the per-tool
+    # Ingresses that path-based interactive tools create must name the same host
+    # or their paths are never reached: interactivetools_proxy_host follows the
+    # hostname here, overriding any empty value from a values file (these inline
+    # values are applied after values_files). The client-auth annotations above
+    # then apply to this host rather than to the controller's default server.
+    _helm_values_tls:
+      ingress:
+        annotations:
+          cert-manager.io/cluster-issuer: "{{ letsencrypt_issuer_name }}"
+        hosts:
+          - host: "{{ galaxy_hostname }}"
+            paths:
+              - path: "{{ galaxy_prefix }}"
+        tls:
+          - hosts:
+              - "{{ galaxy_hostname }}"
+            secretName: "{{ tls_secret_name }}"
+      configs:
+        galaxy.yml:
+          galaxy:
+            galaxy_infrastructure_url: "https://{{ galaxy_hostname }}{{ galaxy_prefix }}"
+            interactivetools_proxy_host: "{{ galaxy_hostname }}"
     _helm_values_cnpg_plugin:
       postgresql:
         cluster:

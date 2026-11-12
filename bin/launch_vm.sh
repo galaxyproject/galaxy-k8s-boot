@@ -37,6 +37,13 @@ GCP_PROJECT_ID=""
 # specific run via the GCP billing export's own labels field instead of
 # inferring it from a VM's creation-time window.
 LABELS=""
+# HTTPS: when GALAXY_HOSTNAME is set, Galaxy is served over TLS at that FQDN via a
+# Let's Encrypt cert (cert-manager). ADDRESS attaches a reserved GCP static IP (name
+# or IP) so the VM's public IP matches the hostname's DNS record. ACME_EMAIL is the
+# Let's Encrypt account email (required when a hostname is set).
+GALAXY_HOSTNAME=""
+ADDRESS=""
+ACME_EMAIL=""
 
 # Parse command line arguments
 DISK_NAME=""
@@ -87,6 +94,16 @@ Options:
                                     galaxy_import_profile role default (can be specified multiple
                                     times). Use --profile '' to disable post-install imports.
   --restore-galaxy                  Auto-detect and restore Galaxy from existing data
+  --hostname FQDN                   Serve Galaxy over HTTPS at this hostname. Issues a
+                                    Let's Encrypt cert via cert-manager (HTTP-01), so
+                                    the FQDN's DNS must resolve to the VM's public IP
+                                    and ports 80/443 must be open. Requires --acme-email.
+                                    Pair with --address for a stable IP.
+  --address NAME|IP                 Attach a reserved GCP static external IP (address
+                                    name or IP) instead of an ephemeral one. Must be in
+                                    the same region as --zone.
+  --acme-email EMAIL                Let's Encrypt account email (expiry/renewal
+                                    notices). Required with --hostname.
   -h, --help, help                  Show this help message
 
 Examples:
@@ -236,6 +253,18 @@ while [[ $# -gt 0 ]]; do
             LABELS="$2"
             shift 2
             ;;
+        --hostname)
+            GALAXY_HOSTNAME="$2"
+            shift 2
+            ;;
+        --address)
+            ADDRESS="$2"
+            shift 2
+            ;;
+        --acme-email)
+            ACME_EMAIL="$2"
+            shift 2
+            ;;
         -h|--help|help)
             usage
             exit 0
@@ -360,6 +389,20 @@ if [ "$EPHEMERAL_ONLY" = false ]; then
     fi
 else
     echo "ℹ Using ephemeral storage only (no persistent disks)."
+fi
+
+# HTTPS requires an ACME account email for the Let's Encrypt certificate.
+if [ -n "$GALAXY_HOSTNAME" ] && [ -z "$ACME_EMAIL" ]; then
+    echo "Error: --hostname '$GALAXY_HOSTNAME' requires --acme-email (Let's Encrypt account email)"
+    usage
+    exit 1
+fi
+if [ -n "$ADDRESS" ]; then
+    echo "Static IP: $ADDRESS"
+fi
+if [ -n "$GALAXY_HOSTNAME" ]; then
+    echo "HTTPS Hostname: $GALAXY_HOSTNAME (Let's Encrypt, ACME email $ACME_EMAIL)"
+    echo "ℹ Ensure DNS for $GALAXY_HOSTNAME resolves to the VM's public IP and 80/443 are open."
 fi
 
 # Generate custom user_data.sh with values baked in
@@ -496,6 +539,14 @@ cat >> "$TEMP_USER_DATA" << EOF
     RESTORE_GALAXY="${RESTORE_GALAXY}"
     REQUIRE_MOUNTED_STORAGE="${REQUIRE_MOUNTED_STORAGE}"
     GCP_PROJECT_ID="${GCP_PROJECT_ID}"
+    GALAXY_HOSTNAME="${GALAXY_HOSTNAME}"
+    ACME_EMAIL="${ACME_EMAIL}"
+    # Include the HTTPS hostname in the RKE2 API cert SANs when one is set.
+    if [ -n "\${GALAXY_HOSTNAME}" ]; then
+      RKE2_SANS="[\"\${HOST_IP}\",\"\${GALAXY_HOSTNAME}\"]"
+    else
+      RKE2_SANS="[\"\${HOST_IP}\"]"
+    fi
 EOF
 
 cat >> "$TEMP_USER_DATA" << 'EOF'
@@ -508,7 +559,7 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     [all:vars]
     ansible_user="PLACEHOLDER_VM_USER"
     rke2_token="defaultSecret12345"
-    rke2_additional_sans=["${HOST_IP}"]
+    rke2_additional_sans=${RKE2_SANS}
     rke2_debug=true
     nfs_size="${PV_SIZE}"
     galaxy_persistence_size="${PV_SIZE}"
@@ -517,6 +568,8 @@ cat >> "$TEMP_USER_DATA" << 'EOF'
     galaxy_bootstrap_api_key="galaxypassword"
     restore_galaxy=$RESTORE_GALAXY
     require_mounted_storage=$REQUIRE_MOUNTED_STORAGE
+    galaxy_hostname="${GALAXY_HOSTNAME}"
+    acme_email="${ACME_EMAIL}"
     INVEOF
 
     echo "[`date`] - NFS storage size for Galaxy: ${PV_SIZE}"
@@ -597,6 +650,13 @@ GCLOUD_CMD=(
 
 if [ -n "$LABELS" ]; then
     GCLOUD_CMD+=(--labels="$LABELS")
+fi
+
+# Attach a reserved static external IP so the VM's public IP matches the hostname's
+# DNS record (required for HTTPS). Accepts an address name or a literal IP; a named
+# regional address must be in the same region as --zone.
+if [ -n "$ADDRESS" ]; then
+    GCLOUD_CMD+=(--address="$ADDRESS")
 fi
 
 # Add disk flags if not ephemeral only
