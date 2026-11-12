@@ -100,7 +100,10 @@ class PostinstallUserTests(unittest.TestCase):
         playbook.write_text(yaml.safe_dump([{
             "hosts": "localhost",
             "gather_facts": False,
-            "vars": {**defaults, "role_path": str(ROLE), "galaxy_user": "workspace-owner@example.org"},
+            # The role appends mixins/vscode-it.yml by default (enable_interactive_tools);
+            # the playbook runs from a temporary directory, so name it absolutely.
+            "vars": {**defaults, "role_path": str(ROLE), "galaxy_user": "workspace-owner@example.org",
+                     "interactive_tools_values_files": [str(ROOT / "mixins/vscode-it.yml")]},
             "tasks": tasks,
         }], sort_keys=False))
         env = dict(os.environ, ANSIBLE_LOCAL_TEMP=str(directory / "local"),
