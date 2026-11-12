@@ -64,6 +64,14 @@ configs:
     galaxy:
       enable_beta_gdpr: true
       enable_beta_tool_formats: true
+      # Images a user-defined tool may name in its `container` field (Galaxy
+      # 26.2, PR 24635). The default allows only quay.io/biocontainers/*; the
+      # Jupyter stacks are added so notebooks can be run as user-defined tools.
+      # A trailing /* allows a namespace, a bare image allows every tag, and
+      # an image with a tag allows that tag only.
+      user_defined_tool_allowed_containers:
+        - quay.io/biocontainers/*
+        - quay.io/jupyter/*
       tus_upload_store: /galaxy/server/database/tmp/tus_upload_store
       # The URL linked by the "Galaxy/brand" text
       logo_url: https://anvil.terra.bio/#workspaces
