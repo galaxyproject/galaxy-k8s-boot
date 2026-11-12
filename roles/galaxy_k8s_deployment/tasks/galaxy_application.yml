@@ -268,7 +268,7 @@
       {%- set base = galaxy_values_files if (galaxy_values_files is defined and galaxy_values_files | length > 0) else ['values/values.yml'] -%}
       {%- set profile = galaxy_import_profile | default([]) -%}
       {%- set its = (interactive_tools_values_files | default([])) if (enable_interactive_tools | default(false) | bool) else [] -%}
-      {{ profile + base + its }}
+      {{ (profile + base + its) | unique | list }}
 
 # The import hook runs inside Helm install, before galaxy-configs can be read.
 # Resolve its user from the same ordered values files that configure Galaxy;

@@ -13,9 +13,10 @@
 # (--server-base-path) rather than code-server, which can only live at a stripped
 # subpath and answers 400/404 otherwise.
 #
-# Select it with:  bin/launch_vm.sh ... -f values/values.yml -f mixins/vscode-it.yml
-# or set enable_interactive_tools=true, which appends this file for launchers that
-# cannot pass values files (Leonardo).
+# The role appends this file by default (enable_interactive_tools, defaults/main.yml)
+# because Leonardo on Terra cannot pass values files; bin/launch_vm.sh users can
+# also name it explicitly with -f mixins/vscode-it.yml, or disable the tool with
+# -e enable_interactive_tools=false.
 #
 # NOTE: mixins are copied to the VM RAW and handed to Helm -- `{{ }}` below is HELM
 # templating (rendered by the chart's `tpl`), NOT Ansible.
