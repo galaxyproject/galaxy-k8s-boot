@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Copy a dataset from the current Galaxy history into the workspace.
+
+Usage: galaxy-get <dataset> [destination]
+
+<dataset> is a history item number (the "3" in "3: my.fasta"), a dataset id or an
+exact dataset name. When several datasets share a name the newest one is used.
+<destination> is a directory (default: the current directory) or a file path.
+
+Uses GALAXY_URL, API_KEY and HISTORY_ID, which Galaxy sets for the session.
+"""
+
+import os
+import sys
+
+from bioblend.galaxy import GalaxyInstance
+
+
+def fail(message):
+    print(f"galaxy-get: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def resolve(gi, history_id, target):
+    contents = gi.histories.show_history(history_id, contents=True, deleted=False, types=["dataset"])
+    if target.isdigit():
+        hits = [d for d in contents if d["hid"] == int(target)]
+    else:
+        hits = [d for d in contents if d["id"] == target]
+        if not hits:
+            hits = [d for d in contents if d["name"] == target]
+    if not hits:
+        fail(f"no dataset '{target}' in the current history")
+    return sorted(hits, key=lambda d: d["hid"])[-1]
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 2 if len(argv) < 2 else 0
+    try:
+        url, key, history_id = (os.environ[v] for v in ("GALAXY_URL", "API_KEY", "HISTORY_ID"))
+    except KeyError as e:
+        fail(f"{e.args[0]} is not set; this helper only works inside the Galaxy VS Code tool")
+
+    gi = GalaxyInstance(url=url, key=key)
+    dataset = resolve(gi, history_id, argv[1])
+    if dataset["state"] != "ok":
+        fail(f"dataset {dataset['hid']}: {dataset['name']} is in state '{dataset['state']}', not 'ok'")
+
+    name = dataset["name"]
+    ext = dataset.get("extension") or dataset.get("file_ext")
+    if ext and not name.endswith(f".{ext}"):
+        name = f"{name}.{ext}"
+    destination = argv[2] if len(argv) > 2 else "."
+    path = os.path.join(destination, name) if os.path.isdir(destination) else destination
+
+    gi.datasets.download_dataset(dataset["id"], file_path=path, use_default_filename=False)
+    print(path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

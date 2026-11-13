@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Upload files to the current Galaxy history right away.
+
+Usage: galaxy-put <file> [<file> ...]
+
+Files saved under workspace/outputs/ are imported automatically when the tool is
+stopped; use this for anything you want in the history before then. The datatype
+is sniffed by Galaxy.
+
+Uses GALAXY_URL, API_KEY and HISTORY_ID, which Galaxy sets for the session.
+"""
+
+import os
+import sys
+
+from bioblend.galaxy import GalaxyInstance
+
+
+def fail(message):
+    print(f"galaxy-put: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 2 if len(argv) < 2 else 0
+    try:
+        url, key, history_id = (os.environ[v] for v in ("GALAXY_URL", "API_KEY", "HISTORY_ID"))
+    except KeyError as e:
+        fail(f"{e.args[0]} is not set; this helper only works inside the Galaxy VS Code tool")
+
+    missing = [f for f in argv[1:] if not os.path.isfile(f)]
+    if missing:
+        fail(f"not a file: {', '.join(missing)}")
+
+    gi = GalaxyInstance(url=url, key=key)
+    for path in argv[1:]:
+        result = gi.tools.upload_file(path, history_id, file_name=os.path.basename(path))
+        for output in result.get("outputs", []):
+            print(f"{path} -> {output['hid']}: {output['name']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
