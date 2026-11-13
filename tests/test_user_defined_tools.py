@@ -22,7 +22,11 @@ TASKS = Path(__file__).resolve().parents[1] / "roles/galaxy_k8s_deployment/tasks
 EMAIL = "default-user@galaxyproject.org"
 USER_ID = "encoded-user"
 API_KEY = "test-bootstrap-key"
-ROLE_PREFIX = f"anvil-user-tools-{USER_ID}-"
+ROLE_TYPES = ("user_tool_create", "user_tool_execute")
+
+
+def role_prefix(role_type):
+    return f"anvil-user-tools-{role_type.removeprefix('user_tool_')}-{USER_ID}-"
 
 
 @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
@@ -118,7 +122,7 @@ class PermissionTests(unittest.TestCase):
         result = subprocess.run([
             "ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook),
             "-e", json.dumps({
-                "_udt_api": f"http://127.0.0.1:{self.server.server_port}/galaxy",
+                "galaxy_api_url": f"http://127.0.0.1:{self.server.server_port}/galaxy",
                 # Leonardo passes the workspace owner as galaxy_user, which is not
                 # a Galaxy user; only Galaxy's single_user is.
                 "galaxy_prefix": "/galaxy", "galaxy_user": "workspace-owner@example.org",
@@ -129,11 +133,12 @@ class PermissionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
 
-    def assert_granted(self):
-        self.assertEqual(len(self.posts), 1)
-        self.assertEqual(self.posts[0]["role_type"], "user_tool_execute")
-        self.assertEqual(self.posts[0]["user_ids"], [USER_ID])
-        self.assertTrue(self.posts[0]["name"].startswith(ROLE_PREFIX))
+    def assert_granted(self, role_types=ROLE_TYPES):
+        self.assertEqual([post["role_type"] for post in self.posts], list(role_types))
+        for post in self.posts:
+            self.assertEqual(post["user_ids"], [USER_ID])
+            self.assertTrue(post["name"].startswith(role_prefix(post["role_type"])), post["name"])
+        self.assertEqual(len({post["name"] for post in self.posts}), len(self.posts))
 
     def test_fresh_install_and_rerun(self):
         first = self.run_tasks()
@@ -141,31 +146,42 @@ class PermissionTests(unittest.TestCase):
         self.assert_granted()
         self.assertIn("changed=1", first)
         second = self.run_tasks()
-        self.assertEqual(len(self.posts), 1)
+        self.assertEqual(len(self.posts), 2)
         self.assertIn("changed=0", second)
 
-    def test_restored_permission_is_preserved(self):
-        self.roles.append(self.role("restored-role", "existing-execution", "user_tool_execute"))
+    def test_restored_permissions_are_preserved(self):
+        self.roles.append(self.role("restored-create", "existing-creation", "user_tool_create"))
+        self.roles.append(self.role("restored-execute", "existing-execution", "user_tool_execute"))
         output = self.run_tasks()
         self.assertEqual(self.posts, [])
         self.assertIn("changed=0", output)
 
+    def test_upgrade_adds_only_the_missing_role(self):
+        # Instances deployed before the creation role was granted have an
+        # execution role named without the type.
+        self.roles.append(self.role("old-role", f"anvil-user-tools-{USER_ID}-20261008120000", "user_tool_execute"))
+        output = self.run_tasks()
+        self.assert_granted(["user_tool_create"])
+        self.assertIn("changed=1", output)
+
     def test_unrelated_roles_do_not_count_as_permission(self):
-        self.roles.append(self.role("other-role", "user-tool-authors", "user_tool_create"))
+        self.roles.append(self.role("other-role", "instance-admins", "admin"))
         self.run_tasks()
         self.assert_granted()
 
-    def test_deleted_permission_is_replaced(self):
-        self.roles.append(self.role("deleted-role", f"{ROLE_PREFIX}old", "user_tool_execute", deleted=True))
+    def test_deleted_permissions_are_replaced(self):
+        self.roles.append(self.role("deleted-create", f"{role_prefix('user_tool_create')}old", "user_tool_create", deleted=True))
+        self.roles.append(self.role("deleted-execute", f"{role_prefix('user_tool_execute')}old", "user_tool_execute", deleted=True))
         self.run_tasks()
         self.assert_granted()
 
     def test_unassigned_permission_is_replaced_without_name_conflict(self):
         # An admin removed the user from a previously granted role, which keeps
         # its name, and then deleted the grant created afterwards.
+        prefix = role_prefix("user_tool_execute")
         self.roles += [
-            self.role("unassigned-role", f"{ROLE_PREFIX}1", "user_tool_execute", assigned=False),
-            self.role("deleted-role", f"{ROLE_PREFIX}2", "user_tool_execute", deleted=True),
+            self.role("unassigned-role", f"{prefix}1", "user_tool_execute", assigned=False),
+            self.role("deleted-role", f"{prefix}2", "user_tool_execute", deleted=True),
         ]
         self.run_tasks()
         self.assert_granted()

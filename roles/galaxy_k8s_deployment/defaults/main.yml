@@ -230,8 +230,9 @@ galaxy_user_quota_name: "vm-disk-quota"
 
 galaxy_db_password: "galaxydbpassword"
 galaxy_user: "default-user@galaxyproject.org"
-# Grant Galaxy's single_user Custom Tool Execution permission on single-user
-# instances. This API setup also runs on upgrades and restored databases.
+# Grant Galaxy's single_user the Custom Tool Creation and Custom Tool Execution
+# roles on single-user instances. This API setup also runs on upgrades and
+# restored databases.
 galaxy_grant_user_defined_tool_permissions: true
 galaxy_bootstrap_api_key: "galaxypassword"
 # Public HTTPS URL Galaxy uses to build absolute links (history exports, API

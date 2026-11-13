@@ -93,12 +93,21 @@ containers. This configuration assumes AnVIL's single-user deployment model.
 
 After Galaxy, the monitor, and Rainstone are deployed, the playbook grants
 Galaxy's `single_user` (read from the `galaxy-configs` ConfigMap, not
-`galaxy_user`) a role of type `user_tool_execute` (shown as **Custom Tool
-Execution** in the admin interface). It skips the grant when the user already has
-an active execution role and runs on fresh installations, upgrades, and restores
-independently of post-install imports and quota setup. Multiuser instances do not
-receive an automatic grant. A failed grant is reported as a warning and does not
-fail the playbook.
+`galaxy_user`) one role of each user-defined tool type: `user_tool_create`
+(shown as **Custom Tool Creation** in the admin interface) and
+`user_tool_execute` (**Custom Tool Execution**). Galaxy currently enforces only
+the execution role; the creation role is granted so authoring keeps working
+once Galaxy starts checking it. The playbook creates only the roles the user
+does not already hold, so it runs on fresh installations, upgrades, and
+restores independently of post-install imports and quota setup. Multiuser
+instances do not receive an automatic grant. A failed grant is reported as a
+warning and does not fail the playbook.
+
+Galaxy 26.2 restricts the container images a user-defined tool may name. The
+default values allow `quay.io/biocontainers/*` and `quay.io/jupyter/*`; extend
+`configs.galaxy.yml.galaxy.user_defined_tool_allowed_containers` in a later
+values file to allow more. The check runs when a tool is created and again when
+its job starts, so the setting must reach the web, job, and workflow pods.
 
 Set `galaxy_grant_user_defined_tool_permissions=false` to manage permissions
 manually. To disable the feature itself, override
