@@ -4,7 +4,7 @@
 # upgrades and restores too, even when imports or user quota setup are disabled.
 #
 # The grant is auxiliary, so a failure is reported without failing the boot.
-- name: Grant Galaxy's single user UDT execution permission
+- name: Grant Galaxy's single user UDT permissions
   block:
     # galaxy_user can differ from Galaxy's single_user (Leonardo passes the
     # workspace owner), and only single_user exists in Galaxy's database.
@@ -17,7 +17,7 @@
         kubeconfig: "{{ kubeconfig_path }}"
       register: _udt_galaxy_configs
 
-    - name: Grant the UDT execution role
+    - name: Grant the UDT roles
       ansible.builtin.include_tasks: user_defined_tools_grant.yml
       vars:
         galaxy_single_user: >-
@@ -25,11 +25,12 @@
               | default({})).single_user | default('', true) }}
 
   rescue:
-    - name: Report that UDT execution permission could not be granted
+    - name: Report that UDT permissions could not be granted
       ansible.builtin.debug:
         msg: >-
-          WARNING: Galaxy's single user was not granted UDT execution permission
+          WARNING: Galaxy's single user was not granted UDT permissions
           ({{ ansible_failed_task.name }}:
           {{ ansible_failed_result.msg | default('see the task output above') }}).
-          Grant the Custom Tool Execution role in Galaxy's admin interface, or set
+          Grant the Custom Tool Creation and Custom Tool Execution roles in
+          Galaxy's admin interface, or set
           galaxy_grant_user_defined_tool_permissions=false to skip this step.
