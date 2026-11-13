@@ -3,7 +3,7 @@
 # configuration, the roles that let it create and run user-defined tools.
 - name: Configure UDT permissions
   vars:
-    _udt_api: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}"
+    _udt_api: "{{ galaxy_api_url }}"
     # Galaxy's role types for user-defined tools (galaxy.model.Role.types).
     # The API only enforces user_tool_execute today; user_tool_create is granted
     # as well so the user keeps authoring tools once Galaxy starts checking it.

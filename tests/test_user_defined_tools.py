@@ -122,7 +122,7 @@ class PermissionTests(unittest.TestCase):
         result = subprocess.run([
             "ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook),
             "-e", json.dumps({
-                "_udt_api": f"http://127.0.0.1:{self.server.server_port}/galaxy",
+                "galaxy_api_url": f"http://127.0.0.1:{self.server.server_port}/galaxy",
                 # Leonardo passes the workspace owner as galaxy_user, which is not
                 # a Galaxy user; only Galaxy's single_user is.
                 "galaxy_prefix": "/galaxy", "galaxy_user": "workspace-owner@example.org",

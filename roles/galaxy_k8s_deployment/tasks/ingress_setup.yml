@@ -228,3 +228,28 @@
     kind: ValidatingWebhookConfiguration
     state: absent
     kubeconfig: "{{ kubeconfig_path }}"
+
+# ============================================================================
+# Let's Encrypt ClusterIssuer (only when serving HTTPS on a hostname)
+# ============================================================================
+# cert-manager is installed earlier (storage_setup.yml) whenever galaxy_hostname is
+# set, so the ClusterIssuer CRD exists here. The webhook can briefly reject requests
+# right after becoming Available, so retry a few times.
+- name: Fail early if a hostname is set without an ACME email
+  ansible.builtin.fail:
+    msg: "galaxy_hostname='{{ galaxy_hostname }}' requires acme_email to be set (Let's Encrypt account email)."
+  when:
+    - galaxy_hostname | default('') | length > 0
+    - acme_email | default('') | length == 0
+
+- name: Create Let's Encrypt ClusterIssuer for Galaxy TLS
+  kubernetes.core.k8s:
+    template:
+      path: templates/letsencrypt_clusterissuer.yaml.j2
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: _le_issuer
+  until: _le_issuer is succeeded
+  retries: 10
+  delay: 15
+  when: galaxy_hostname | default('') | length > 0

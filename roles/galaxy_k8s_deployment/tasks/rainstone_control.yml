@@ -1,7 +1,7 @@
 ---
 - name: Resolve the shared Galaxy account for collector control
   ansible.builtin.uri:
-    url: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}/api/users?f_email={{ _rainstone_owner | urlencode }}"
+    url: "{{ galaxy_api_url }}/api/users?f_email={{ _rainstone_owner | urlencode }}"
     headers:
       x-api-key: "{{ galaxy_bootstrap_api_key }}"
     return_content: true
@@ -17,7 +17,7 @@
 
 - name: Provision the collector's ordinary Galaxy API credential
   ansible.builtin.uri:
-    url: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}/api/users/{{ _rainstone_control_users.json[0].id }}/api_key"
+    url: "{{ galaxy_api_url }}/api/users/{{ _rainstone_control_users.json[0].id }}/api_key"
     headers:
       x-api-key: "{{ galaxy_bootstrap_api_key }}"
     return_content: true
@@ -27,7 +27,7 @@
 
 - name: Verify the collector credential has administrator authority
   ansible.builtin.uri:
-    url: "http://127.0.0.1{{ galaxy_prefix | regex_replace('/$', '') }}/api/job_lock"
+    url: "{{ galaxy_api_url }}/api/job_lock"
     headers:
       x-api-key: "{{ _rainstone_control_key.json }}"
     timeout: 30
