@@ -85,45 +85,12 @@
 # As soon as the plugin is deployed, it does a no-op on initdb and allows PostgreSQL
 # to reuse existing data directories.
 
-- name: Deploy CNPG skip-initdb plugin for database restoration
-  kubernetes.core.k8s:
-    state: present
-    kubeconfig: "{{ kubeconfig_path }}"
-    definition: "{{ lookup('template', 'templates/cnpg_skip_initdb_plugin.yaml.j2') }}"
+- name: Prepare the CNPG plugin for Galaxy restoration
+  ansible.builtin.include_tasks: cnpg_restore_plugin.yml
   when: restore_galaxy | bool
 
-- name: Wait for CNPG plugin pod to be ready
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Pod
-    namespace: "{{ cnpg_skip_initdb_namespace }}"
-    label_selectors:
-      - "app=skip-initdb"
-    kubeconfig: "{{ kubeconfig_path }}"
-  register: plugin_pod
-  until:
-    - plugin_pod.resources | length > 0
-    - >-
-      plugin_pod.resources[0].status.conditions | default([])
-      | selectattr('type', 'equalto', 'Ready')
-      | selectattr('status', 'equalto', 'True') | list | length > 0
-  retries: 60
-  delay: 5
-  when: restore_galaxy | bool
-
-- name: Display CNPG plugin status
-  debug:
-    msg: "CNPG skip-initdb plugin deployed. Plugin will skip initdb."
-  when: restore_galaxy | bool
-- name: Ensure CNPG plugin is NOT deployed in fresh install mode
-  kubernetes.core.k8s:
-    state: absent
-    api_version: v1
-    kind: Deployment
-    name: skip-initdb
-    namespace: "{{ cnpg_skip_initdb_namespace }}"
-    kubeconfig: "{{ kubeconfig_path }}"
-  when: not (restore_galaxy | bool)
+# The plugin is selected per Cluster. Leave the shared service available:
+# Rainstone may need it even when Galaxy itself is being installed fresh.
 
 - name: Helm install galaxy-deps
   kubernetes.core.helm:

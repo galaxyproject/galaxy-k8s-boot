@@ -47,7 +47,7 @@ a limit:
 ```yaml
 deploy_rainstone: true
 rainstone_chart: cloudve/rainstone
-rainstone_chart_version: "0.4.0"
+rainstone_chart_version: "0.5.0"
 rainstone_base_path: "{{ galaxy_prefix | regex_replace('/$', '') }}/costs"
 # Rainstone's instance identity. Keep it stable for a given Galaxy: a new slug
 # starts a new reporting history.
@@ -73,14 +73,35 @@ Rainstone's database uses the storage class of Galaxy's own database, so it is
 kept on the same retained persistent disk across stop and resume. It gets its
 own directory there and never shares Galaxy's data directory.
 
-`restore_galaxy` does not restore Rainstone's database yet. On a new VM its
-volume is provisioned afresh, and reporting history starts over.
+Chart `0.5.0` uses a separate single-instance CloudNativePG cluster for
+Rainstone. The existing operator reconciles its database password with the
+application Secret, so regenerated Kubernetes credentials work after VM
+replacement. Remote database superuser access is disabled.
+
+Rainstone restoration is detected independently of `restore_galaxy`. Before
+creating its Cluster, the playbook checks the persistent PostgreSQL disk for
+`pvc-*_galaxy_rainstone-postgres-1/pgdata/PG_VERSION`. When that data exists,
+it enables the same skip-initdb plugin Galaxy uses. The storage provisioner
+reconnects the new claim to the old directory. Ambiguous or incomplete data
+stops Rainstone deployment instead of silently starting new history.
+Reruns select Galaxy's source cluster by release label, so Rainstone's own
+Cluster cannot be mistaken for the source.
+
+This automatic lifecycle requires `postgres-storage` and the standard
+Rainstone resource names. Custom storage lifecycles should use an external
+database Secret through `rainstone_values`.
+
+Legacy standalone Rainstone data is not migrated. Its claim and directory
+are left unused; the first CNPG installation starts new reporting history
+and no spend limit. Collection reads available Galaxy history again, but
+observations no longer available from sources cannot be recovered. Later
+CNPG restores retain Rainstone's history, identity and spend-limit state.
 
 ## Release prerequisites
 
-Chart `0.4.0` requires Rainstone `2.0.0b2`. Merge and publish the Rainstone
-release before merging this playbook's chart-version update. Check the
-published chart and image, rather than relying on a local package.
+Chart `0.5.0` uses the existing Rainstone `2.0.0b2` image. Merge and publish
+the Rainstone chart before merging this playbook's chart-version update.
+Check the published chart and image, rather than relying on a local package.
 
 Galaxy 26.2's fair ready-job dispatch is required. The default AnVIL job
 configuration and shared TPV database define no resubmission rules, so

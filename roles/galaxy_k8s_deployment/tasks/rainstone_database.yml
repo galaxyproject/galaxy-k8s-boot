@@ -1,0 +1,53 @@
+---
+- name: Require the standard Rainstone resource names for local restoration
+  ansible.builtin.assert:
+    that:
+      - rainstone_values.nameOverride | default('rainstone') == 'rainstone'
+      - >-
+        rainstone_values.database.storageClass
+        | default(_rainstone_source.spec.storage.storageClass | default('postgres-storage', true))
+        == 'postgres-storage'
+    fail_msg: >-
+      Automatic Rainstone restoration uses postgres-storage and the standard
+      Rainstone resource names. Use an external database Secret for a custom
+      storage lifecycle.
+
+- name: Inspect Rainstone's existing CNPG cluster
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    namespace: galaxy
+    name: rainstone-postgres
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: _rainstone_database_cluster
+
+- name: Preserve an existing Rainstone cluster's bootstrap plugins
+  ansible.builtin.set_fact:
+    _rainstone_database_plugins: >-
+      {{ (_rainstone_database_cluster.resources | first | default({})).get('spec', {}).get('plugins', []) }}
+
+- name: Find retained Rainstone CNPG data before creating a cluster
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -s
+      - --
+      - "{{ postgres_storage_disk_path }}"
+      - galaxy
+      - rainstone-postgres-1
+    stdin: "{{ lookup('file', role_path ~ '/files/find_rainstone_database.sh') }}"
+  register: _rainstone_database_data
+  changed_when: false
+  when: _rainstone_database_cluster.resources | length == 0
+
+- name: Enable bootstrap reuse only when Rainstone has retained CNPG data
+  ansible.builtin.set_fact:
+    _rainstone_database_plugins:
+      - name: "{{ cnpg_skip_initdb_plugin_name }}"
+  when:
+    - _rainstone_database_cluster.resources | length == 0
+    - _rainstone_database_data.stdout | default('') | length > 0
+
+- name: Prepare the shared CNPG plugin for Rainstone restoration
+  ansible.builtin.include_tasks: cnpg_restore_plugin.yml
+  when: _rainstone_database_plugins | length > 0

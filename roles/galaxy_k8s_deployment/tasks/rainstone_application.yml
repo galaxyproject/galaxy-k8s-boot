@@ -10,8 +10,8 @@
 # Rainstone is auxiliary, so a failure here is reported without failing the
 # boot unless rainstone_required is set.
 #
-# restore_galaxy does not restore Rainstone's own database yet: its volume is
-# provisioned afresh on a new VM, so reporting history starts over there.
+# CNPG restoration is detected independently of Galaxy restoration. Legacy
+# standalone Rainstone volumes are deliberately not migrated.
 
 - name: Deploy Rainstone
   block:
@@ -20,6 +20,8 @@
         api_version: postgresql.cnpg.io/v1
         kind: Cluster
         namespace: galaxy
+        label_selectors:
+          - app.kubernetes.io/instance=galaxy
         kubeconfig: "{{ kubeconfig_path }}"
       register: rainstone_source_clusters
       until: >-
@@ -116,6 +118,13 @@
       ansible.builtin.include_tasks: rainstone_control.yml
       when: _rainstone_guard_enabled | bool
 
+    - name: Prepare Rainstone database restoration
+      ansible.builtin.include_tasks: rainstone_database.yml
+      when:
+        - rainstone_values.database.provider | default('cnpg') == 'cnpg'
+        - rainstone_values.database.deploy | default(true) | bool
+        - rainstone_values.database.existingSecret | default('') | length == 0
+
     - name: Helm install Rainstone
       kubernetes.core.helm:
         name: rainstone
@@ -149,6 +158,9 @@
             host: "{{ _rainstone_source.metadata.name }}-rw"
             database: "{{ _rainstone_source.spec.bootstrap.initdb.database }}"
           database:
+            provider: cnpg
+            cnpg:
+              plugins: "{{ _rainstone_database_plugins | default([]) }}"
             # The class Galaxy's own database persists on: a retained volume on
             # the persistent PostgreSQL disk. Rainstone gets its own directory
             # there and never shares Galaxy's data directory.
