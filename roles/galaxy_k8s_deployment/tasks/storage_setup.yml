@@ -23,36 +23,44 @@
 # cert-manager Installation (Required for CNPG skip-initdb plugin)
 # ============================================================================
 - name: Install cert-manager for CNPG plugin TLS certificates
-  kubernetes.core.k8s:
-    state: present
-    kubeconfig: "{{ kubeconfig_path }}"
-    definition: "{{ lookup('url', 'https://github.com/cert-manager/cert-manager/releases/download/' + cert_manager_version + '/cert-manager.yaml', split_lines=false) | from_yaml_all | list }}"
   when: setup_cert_manager | default(false) | bool or (restore_galaxy | bool) or (deploy_rainstone | bool) or (galaxy_hostname | default('') | length > 0)
+  block:
+    # Fetched on the target rather than with lookup('url'): lookups run on the controller, where a forked worker
+    # fetching a URL is killed on macOS (Objective-C fork safety).
+    - name: Download the cert-manager manifest
+      ansible.builtin.uri:
+        url: "https://github.com/cert-manager/cert-manager/releases/download/{{ cert_manager_version }}/cert-manager.yaml"
+        return_content: true
+      register: cert_manager_manifest
 
-- name: Wait for cert-manager deployment to be available
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: cert-manager
-    namespace: cert-manager
-    kubeconfig: "{{ kubeconfig_path }}"
-    wait: true
-    wait_condition:
-      type: Available
-      status: "True"
-    wait_timeout: 300
-  when: setup_cert_manager | default(false) | bool or (restore_galaxy | bool) or (deploy_rainstone | bool) or (galaxy_hostname | default('') | length > 0)
+    - name: Apply the cert-manager manifest
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition: "{{ cert_manager_manifest.content | from_yaml_all | list }}"
 
-- name: Wait for cert-manager-webhook deployment to be available
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: cert-manager-webhook
-    namespace: cert-manager
-    kubeconfig: "{{ kubeconfig_path }}"
-    wait: true
-    wait_condition:
-      type: Available
-      status: "True"
-    wait_timeout: 300
-  when: setup_cert_manager | default(false) | bool or (restore_galaxy | bool) or (deploy_rainstone | bool) or (galaxy_hostname | default('') | length > 0)
+    - name: Wait for cert-manager deployment to be available
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: cert-manager
+        namespace: cert-manager
+        kubeconfig: "{{ kubeconfig_path }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+
+    - name: Wait for cert-manager-webhook deployment to be available
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: cert-manager-webhook
+        namespace: cert-manager
+        kubeconfig: "{{ kubeconfig_path }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
