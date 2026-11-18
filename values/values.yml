@@ -72,6 +72,37 @@ configs:
       user_defined_tool_allowed_containers:
         - quay.io/biocontainers/*
         - quay.io/jupyter/*
+      # Interactive Tools (ITs), PATH-BASED. Galaxy is IT-ready by default; the
+      # playbook installs no IT. Admins install them from the ToolShed (for example
+      # interactive_tool_vscode, Visual Studio Code in the browser) or pick them up
+      # from CVMFS, and they run as Kubernetes pods. Opt out with
+      # mixins/no-interactive-tools.yml.
+      #
+      # Path-based means every session is served under Galaxy's own host and prefix,
+      #   https://<galaxy host><galaxy_prefix>/interactivetool/ep/<id>/<token>/
+      # so no per-session hostname, wildcard DNS or wildcard certificate is needed.
+      # That is the only layout that works behind Leonardo on Terra, where Galaxy
+      # lives at a long path under a shared proxy host. Domain-based ITs
+      # (requires_domain="True") are not supported here.
+      interactivetools_enable: true
+      # EMPTY on purpose. The Kubernetes runner builds every IT Ingress with
+      # `host: <interactivetools_proxy_host>`; the chart defaults it to the ingress
+      # host, which this deployment leaves unset, so it renders as "localhost" and
+      # the IT Ingress never matches a real request. An empty host matches every
+      # host, like Galaxy's own Ingress here, and makes Galaxy hand the browser a
+      # RELATIVE IT URL (the request host is reused), which is what a proxied
+      # deployment needs: the Leonardo host and prefix are preserved. When
+      # galaxy_hostname is set, the playbook's inline TLS values override this with
+      # the hostname, because ingress-nginx routes by Host before path.
+      interactivetools_proxy_host: ""
+      # interactivetools_base_path is left to the chart: it tracks the ingress path,
+      # which the playbook sets to galaxy_prefix.
+      #
+      # The chart default is a RELATIVE path, which Galaxy resolves against the
+      # pod-local server root rather than the shared data dir. The web and job
+      # handlers then keep separate map files and stopping an IT fails with
+      # "no such table: gxitproxy". Pin it to the shared volume.
+      interactivetools_map: /galaxy/server/database/interactivetools_map.sqlite
       tus_upload_store: /galaxy/server/database/tmp/tus_upload_store
       # The URL linked by the "Galaxy/brand" text
       logo_url: https://anvil.terra.bio/#workspaces
@@ -111,6 +142,19 @@ configs:
     runners:
       k8s:
         k8s_fs_group_change_policy: OnRootMismatch
+        # Interactive tools: no per-IT TLS block, ingress-nginx already serves 443
+        # for every host with the controller's default certificate (the
+        # Leonardo-injected pair when present). With the chart default (true) and
+        # no TLS secret the runner would emit a tls entry with an empty host and an
+        # empty secret name.
+        k8s_interactivetools_use_ssl: false
+        # The chart copies Galaxy's ingress annotations onto every IT Ingress,
+        # including cert-manager's cluster-issuer. Replace them with the long
+        # timeouts a WebSocket-heavy IDE needs.
+        k8s_interactivetools_ingress_annotations: |
+          nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+          nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+          nginx.ingress.kubernetes.io/proxy-body-size: "1G"
       gcp_batch:
         load: galaxy.jobs.runners.gcp_batch:GoogleCloudBatchJobRunner
         workers: 4
@@ -179,9 +223,6 @@ configs:
         id: __SET_METADATA__
       - environment: local
         id: __EXTRACT_DATASET__
-      # Route interactive tools to Kubernetes
-      - environment: local
-        id: interactive_tool.*
       # Route data source tools to Kubernetes
       - environment: local
         id: .*data_source.*
@@ -371,6 +412,9 @@ jobs:
             accept:
               - docker
               - tool_type_user_defined
+              # Interactive tools require this tag (tools rule below): only k8s can
+              # create the Service + Ingress an IT needs, never GCP Batch.
+              - interactive
             prefer:
               - small-job
         gcp_batch:
@@ -395,6 +439,23 @@ jobs:
             mem: "{mem}"
             job_id_prefix: galaxy-batch
       tools:
+        # Pin every interactive tool to the k8s destination: it is the only one that
+        # can create the Service + Ingress an IT needs (it carries the `interactive`
+        # accept tag above; GCP Batch does not). TPV compiles the key as a regex and
+        # matches it from the START of the tool id. A ToolShed-installed tool's id is
+        # <shed>/repos/<owner>/<repo>/<tool>/<version>, so the leading `.*` is what
+        # makes testtoolshed.g2.bx.psu.edu/repos/ksuderman/interactive_tool_vscode/
+        # interactive_tool_vscode/1.105.1 match as well as a bare interactive_tool_x.
+        ".*interactive_tool_.*":
+          params:
+            # What $__galaxy_url__ (GALAXY_URL inside the tool) resolves to for IT
+            # jobs: Galaxy's own nginx Service, reached from inside the cluster. The
+            # public URL is wrong here. On a plain VM it is unset, and on Terra it
+            # points at the Leonardo proxy, which only admits browser sessions.
+            galaxy_infrastructure_url: 'http://{{ include "galaxy.fullname" . }}-nginx:{{ .Values.service.port }}{{ .Values.ingress.path }}'
+          scheduling:
+            require:
+              - interactive
         # TPV matches dynamic tools by type and UUID, not their authored ID.
         "user_defined-.*":
           params:
