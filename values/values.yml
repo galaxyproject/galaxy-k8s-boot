@@ -79,7 +79,7 @@ configs:
       # mixins/no-interactive-tools.yml.
       #
       # Path-based means every session is served under Galaxy's own host and prefix,
-      #   https://<galaxy host><galaxy_prefix>/interactivetool/ep/<id>/<token>/
+      #   https://<galaxy host><galaxy_prefix>/its/ep/<id>/<token>/
       # so no per-session hostname, wildcard DNS or wildcard certificate is needed.
       # That is the only layout that works behind Leonardo on Terra, where Galaxy
       # lives at a long path under a shared proxy host. Domain-based ITs
