@@ -114,6 +114,26 @@ manually. To disable the feature itself, override
 `configs.galaxy.yml.galaxy.enable_beta_tool_formats` to `false` in a later values
 file. Disabling automatic grants does not revoke an existing role.
 
+## Interactive Tools
+
+Galaxy is ready for path-based Interactive Tools (ITs) by default. `values/values.yml`
+enables `interactivetools_enable`, keeps the entry point map on the shared volume,
+leaves `interactivetools_proxy_host` empty so sessions are served under Galaxy's own
+host and prefix (the layout that works behind Terra's proxy; when `galaxy_hostname`
+is set the playbook fills in the hostname instead), sets the Kubernetes runner's IT
+Ingress options, and routes every tool whose id contains `interactive_tool_`,
+including the long ToolShed ids, to the Kubernetes destination, which carries the
+matching `interactive` tag. GCP Batch cannot run ITs.
+
+No tool is installed by the playbook. Admins install ITs from the ToolShed (for
+example `interactive_tool_vscode`, Visual Studio Code in the browser) or pick them
+up from CVMFS; they appear in the tool panel and run as Kubernetes pods, each with
+its own Ingress under `<prefix>/interactivetool/ep/`. Sessions are stopped from
+User > Active Interactive Tools. Domain-based ITs (`requires_domain="True"`) need
+wildcard DNS and a wildcard certificate and are not supported by this configuration.
+
+To leave ITs out, add `mixins/no-interactive-tools.yml` after the values file.
+
 ## Rainstone Cost Reports
 
 Rainstone is deployed with Galaxy by default. See [rainstone.md](rainstone.md)

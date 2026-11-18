@@ -1,0 +1,10 @@
+# Turn Interactive Tools off. values/values.yml enables them by default (Galaxy is
+# IT-ready, admins install ITs from the ToolShed or CVMFS). Add this file after it:
+#   bin/launch_vm.sh ... -f values/values.yml -f mixins/no-interactive-tools.yml
+# With interactivetools_enable false Galaxy refuses to load tools of type
+# "interactive", so the k8s runner settings and the TPV rule in values.yml are
+# inert and need no change.
+configs:
+  galaxy.yml:
+    galaxy:
+      interactivetools_enable: false
